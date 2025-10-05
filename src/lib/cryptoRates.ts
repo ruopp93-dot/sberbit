@@ -11,8 +11,8 @@ export type Rates = Record<string, ExchangeRate>;
 
 // Initial sample rates; can be adjusted via updateRate()
 const rates: Rates = {
-  BTC: { currency: "BTC", rub: 3500000, lastUpdate: new Date() },
-  ETH: { currency: "ETH", rub: 180000, lastUpdate: new Date() },
+  BTC: { currency: "BTC", rub: 10683297, lastUpdate: new Date() },
+  ETH: { currency: "ETH", rub: 395453, lastUpdate: new Date() },
   USDT: { currency: "USDT", rub: 97.5, lastUpdate: new Date() },
 };
 
