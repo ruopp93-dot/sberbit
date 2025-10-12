@@ -8,7 +8,7 @@ if (!token) {
 }
 
 const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-const site = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const site = process.env.NEXT_PUBLIC_SITE_URL || 'https://sberbits.com.ru/';
 const endpoint = webhookSecret ? `${site.replace(/\/$/, '')}/api/telegram/webhook?secret=${webhookSecret}` : `${site.replace(/\/$/, '')}/api/telegram/webhook`;
 
 const bot = new TelegramBot(token, { polling: true });
