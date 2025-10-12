@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       toAmount,
       toCurrency: cryptoKey + (toCurrency.includes('-') ? ` ${toCurrency.split('-')[1]}` : ''),
       toAccount: walletAddress,
-  paymentDetails: 'https://www.donationalerts.com/r/sberbits',
+  paymentDetails: 'https://dalink.to/sberbits_com_ru',
       createdAt,
       lastStatusUpdate,
       email,
