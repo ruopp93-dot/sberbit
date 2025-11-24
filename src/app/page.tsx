@@ -1,5 +1,5 @@
+import Image from 'next/image';
 import { ExchangeForm } from '@/components/ExchangeForm';
-import ExchangeRates from '@/components/ExchangeRates';
 
 export default function Home() {
   return (
@@ -7,7 +7,14 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold mb-4" style={{ color: 'var(--foreground)' }}>
-            <img src="/logo.png" alt="SberBitS" style={{ height: 56, width: 'auto', display: 'inline-block' }} />
+            <Image
+              src="/logo.png"
+              alt="SberBitS"
+              width={160}
+              height={56}
+              style={{ height: 56, width: 'auto', display: 'inline-block' }}
+              priority
+            />
           </h1>
           <p className="text-lg" style={{ color: 'var(--foreground)', opacity: 0.85 }}>
             Быстрый безопасный и анонимный обмен криптовалют

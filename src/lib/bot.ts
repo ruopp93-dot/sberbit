@@ -15,7 +15,7 @@ if (token) {
 } else {
   // Fallback no-op api to avoid runtime crashes when env vars are absent.
   const noopApi: Partial<Api> = {
-    async sendMessage(..._args: any[]): Promise<any> {
+    async sendMessage(): Promise<any> {
       if (process.env.NODE_ENV !== "production") {
         console.warn(
           "Telegram bot token is missing. Skipping sendMessage(). Set TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID in .env.local"
@@ -23,7 +23,7 @@ if (token) {
       }
       return Promise.resolve(undefined as unknown as never);
     },
-    async editMessageText(..._args: any[]): Promise<any> {
+    async editMessageText(): Promise<any> {
       if (process.env.NODE_ENV !== "production") {
         console.warn(
           "Telegram bot token is missing. Skipping editMessageText(). Set TELEGRAM_BOT_TOKEN in .env.local"
@@ -31,7 +31,7 @@ if (token) {
       }
       return Promise.resolve(undefined as unknown as never);
     },
-    async answerCallbackQuery(..._args: any[]): Promise<any> {
+    async answerCallbackQuery(): Promise<any> {
       if (process.env.NODE_ENV !== "production") {
         console.warn(
           "Telegram bot token is missing. Skipping answerCallbackQuery(). Set TELEGRAM_BOT_TOKEN in .env.local"

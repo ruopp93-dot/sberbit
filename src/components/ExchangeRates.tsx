@@ -41,7 +41,7 @@ export default function ExchangeRates() {
         try {
           const data = JSON.parse(ev.data);
           setRates(data);
-        } catch (e) {
+        } catch {
           // ignore malformed
         }
       };
@@ -50,7 +50,7 @@ export default function ExchangeRates() {
         try { es?.close(); } catch {};
         es = null;
       };
-    } catch (e) {
+    } catch {
       // ignore
     }
 

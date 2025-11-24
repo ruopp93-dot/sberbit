@@ -44,12 +44,12 @@ export function updateRate(currency: string, rubPrice: number): void {
       for (const ctl of Array.from(clients)) {
         try {
           ctl.enqueue(`data: ${payload}\n\n`);
-        } catch (e) {
+        } catch {
           // ignore individual client errors
         }
       }
     }
-  } catch (e) {
+  } catch {
     // ignore
   }
 }

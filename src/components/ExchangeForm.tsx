@@ -100,7 +100,7 @@ export function ExchangeForm() {
                 setCaptchaQuestion(cData.question);
                 setCaptchaAnswer('');
               }
-            } catch (e) {
+            } catch {
               // ignore fetch errors for captcha refresh
             }
             alert(result.message + '. Капча обновлена — введите новый ответ и отправьте форму ещё раз.');
@@ -131,9 +131,9 @@ export function ExchangeForm() {
           };
           localStorage.setItem(`order:${result.orderId}`, JSON.stringify(backupOrder));
         }
-      } catch (e) {
-        // ignore localStorage errors
-      }
+        } catch {
+          // ignore localStorage errors
+        }
 
       // Перенаправляем на страницу заявки
       window.location.href = `/order/${result.orderId}`;
@@ -326,7 +326,8 @@ export function ExchangeForm() {
                     const json = await res.json();
                     setCaptchaToken(json.token);
                     setCaptchaQuestion(json.question);
-                  } catch (e) {
+                  } catch (error) {
+                    console.error('Не удалось получить капчу', error);
                     alert('Не удалось получить капчу. Попробуйте позже.');
                   }
                 }}

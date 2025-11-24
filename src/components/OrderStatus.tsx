@@ -41,7 +41,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
               setOrder(cached);
               return;
             }
-          } catch (e) {
+          } catch {
             // ignore parse errors
           }
         }
