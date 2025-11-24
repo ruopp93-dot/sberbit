@@ -1,6 +1,7 @@
 "use client";
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { ThemeToggle } from './ThemeToggle';
 
 export function Navigation() {
@@ -11,7 +12,7 @@ export function Navigation() {
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
               <Link href="/" className="flex items-center" style={{ textDecoration: 'none' }}>
-                <img src="/logo.png" alt="SberBitS" style={{ height: 36, width: 'auto' }} />
+                <Image src="/logo.png" alt="SberBitS" width={120} height={36} style={{ height: 36, width: 'auto' }} />
               </Link>
             </div>
             <div className="hidden sm:ml-6 sm:flex sm:space-x-8">

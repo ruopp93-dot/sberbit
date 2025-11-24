@@ -65,7 +65,33 @@ function formatOrderLine(o: { id: string; fromAmount: string; fromCurrency: stri
   return `#${o.id} | ${o.fromAmount} ${o.fromCurrency} → ${o.toAmount} ${o.toCurrency} | ${o.status}`;
 }
 
-function buildMainMenu() {
+function buildMainMenu(chatId?: number | string | null) {
+  const admin = isAdmin(chatId);
+  const inline_keyboard = [
+    [
+      { text: '📝 Активные', callback_data: 'menu:orders' },
+      { text: '💸 Оплаченные', callback_data: 'menu:paid' },
+    ],
+    [
+      { text: '🗑 Отменённые', callback_data: 'menu:canceled' },
+      { text: '📋 Все', callback_data: 'menu:all' },
+    ],
+    [
+      { text: '📈 Курсы', callback_data: 'menu:rates' },
+      { text: '❓ Помощь', callback_data: 'menu:help' },
+    ],
+  ];
+
+  if (admin) {
+    inline_keyboard.push([{ text: '🛠 Админ-панель', callback_data: 'menu:admin' }]);
+  }
+
+  inline_keyboard.push([{ text: '🆘 Поддержка', url: 'https://t.me/SunocomMusic' }]);
+
+  return { inline_keyboard };
+}
+
+function buildAdminMenu() {
   return {
     inline_keyboard: [
       [
@@ -74,17 +100,56 @@ function buildMainMenu() {
       ],
       [
         { text: '🗑 Отменённые', callback_data: 'menu:canceled' },
-        { text: '📋 Все', callback_data: 'menu:all' },
+        { text: '📋 Все заявки', callback_data: 'menu:all' },
       ],
       [
-        { text: '📈 Курсы', callback_data: 'menu:rates' },
-        { text: '❓ Помощь', callback_data: 'menu:help' },
+        { text: '📈 Курсы (редактировать)', callback_data: 'menu:rates' },
+        { text: '🔄 Обновить панель', callback_data: 'menu:admin' },
       ],
       [
-        { text: '🆘 Поддержка', url: 'https://t.me/SunocomMusic' },
+        { text: '🏠 Главное меню', callback_data: 'menu:main' },
       ],
     ],
   };
+}
+
+function buildAdminDashboardText() {
+  const orders = OrdersStore.all();
+  const active = orders.filter(o => !isCanceled(o.status)).length;
+  const paid = orders.filter(o => isPaid(o.status)).length;
+  const canceled = orders.filter(o => isCanceled(o.status)).length;
+  const total = orders.length;
+
+  const now = new Date();
+  const updatedAt = `${now.toLocaleDateString('ru-RU')} ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+
+  const lines = [
+    '📊 Админ-панель',
+    'Отсюда можно управлять заявками и курсами.',
+    '',
+    `Всего заявок: ${total}`,
+    `Активные: ${active}`,
+    `Оплаченные: ${paid}`,
+    `Отменённые: ${canceled}`,
+    '',
+    `Обновлено: ${updatedAt}`,
+  ];
+
+  return lines.join('\n');
+}
+
+async function handleShowAdminDashboard(chatId: number | string, messageId?: number) {
+  const text = buildAdminDashboardText();
+  const keyboard = buildAdminMenu();
+
+  if (messageId) {
+    try {
+      await bot.api.editMessageText(chatId, messageId, text, { reply_markup: keyboard as any });
+      return;
+    } catch {}
+  }
+
+  await bot.api.sendMessage(chatId, text, { reply_markup: keyboard as any });
 }
 
 type ListFilter = 'active' | 'paid' | 'canceled' | 'all';
@@ -123,7 +188,7 @@ async function handleShowList(chatId: number | string, filter: ListFilter, page 
   const items = filterOrders(filter).reverse();
   if (items.length === 0) {
     const emptyText = filter === 'canceled' ? 'Отменённых заявок нет.' : 'Список заявок пуст.';
-    await bot.api.sendMessage(chatId, emptyText, { reply_markup: buildMainMenu() as any });
+    await bot.api.sendMessage(chatId, emptyText, { reply_markup: buildMainMenu(chatId) as any });
     return;
   }
   const { slice, p, pages, total } = paginate(items, page);
@@ -145,7 +210,7 @@ async function handleShowList(chatId: number | string, filter: ListFilter, page 
 async function handleShowOrder(chatId: string | number, id: string) {
   const o = OrdersStore.get(id);
   if (!o) {
-    await bot.api.sendMessage(chatId, `Заявка #${id} не найдена.`, { reply_markup: buildMainMenu() as any });
+    await bot.api.sendMessage(chatId, `Заявка #${id} не найдена.`, { reply_markup: buildMainMenu(chatId) as any });
     return;
   }
   const lines = [
@@ -368,7 +433,13 @@ export async function POST(request: NextRequest) {
 
       // Public commands (available to any user)
       if (text === '/start' || text === 'menu' || text === '/menu') {
-        await bot.api.sendMessage(chatId, 'Главное меню', { reply_markup: buildMainMenu() as any });
+        await bot.api.sendMessage(chatId, 'Главное меню', { reply_markup: buildMainMenu(chatId) as any });
+      } else if (text === '/admin') {
+        if (!isAdmin(chatId)) {
+          await bot.api.sendMessage(chatId, 'Доступно только администратору.', { reply_markup: buildMainMenu(chatId) as any });
+          return NextResponse.json({ ok: true });
+        }
+        await handleShowAdminDashboard(chatId);
       } else if (text === '/rates' || /^\/rates/i.test(text)) {
         await handleShowRates(chatId);
       } else if (/^#?\d+$/.test(text)) {
@@ -391,7 +462,7 @@ export async function POST(request: NextRequest) {
           await handleShowList(chatId, 'active', 1);
         }
       } else {
-        await bot.api.sendMessage(chatId, 'Команда не распознана. Используйте меню ниже.', { reply_markup: buildMainMenu() as any });
+        await bot.api.sendMessage(chatId, 'Команда не распознана. Используйте меню ниже.', { reply_markup: buildMainMenu(chatId) as any });
       }
     } else if (update.callback_query) {
       const cq = update.callback_query;
@@ -399,7 +470,7 @@ export async function POST(request: NextRequest) {
       const data: string = cq.data || '';
 
       // Determine whether this callback requires admin rights
-      const adminOnly = /^(menu:(orders|paid|canceled|all))|^list:|^act:/i.test(data);
+      const adminOnly = /^(menu:(orders|paid|canceled|all|admin))|^list:|^act:/i.test(data);
       if (adminOnly && !isAdmin(chatId)) {
         // politely acknowledge the interaction for non-admins
         if (cq.id) {
@@ -408,7 +479,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true });
       }
       if (data === 'menu:main') {
-        await bot.api.editMessageText(chatId, cq.message!.message_id, 'Главное меню', { reply_markup: buildMainMenu() as any });
+        await bot.api.editMessageText(chatId, cq.message!.message_id, 'Главное меню', { reply_markup: buildMainMenu(chatId) as any });
+      } else if (data === 'menu:admin') {
+        await handleShowAdminDashboard(chatId, cq.message?.message_id);
       } else if (data === 'menu:orders') {
         await handleShowList(chatId, 'active', 1);
       } else if (data === 'menu:paid') {
@@ -430,7 +503,7 @@ export async function POST(request: NextRequest) {
         PendingActions.set(String(chatId), { type: 'edit_rate', orderId: currency });
         await bot.api.sendMessage(chatId, `Введите новый курс (в RUB) для ${currency}, например 4200000`);
       } else if (data === 'menu:help') {
-        await bot.api.sendMessage(chatId, 'Доступные действия: \n- Заявки\n- Отменённые заявки\n- Просмотр заявки по ID (отправьте номер, напр. 12345)', { reply_markup: buildMainMenu() as any });
+        await bot.api.sendMessage(chatId, 'Доступные действия: \n- Заявки\n- Отменённые заявки\n- Просмотр заявки по ID (отправьте номер, напр. 12345)', { reply_markup: buildMainMenu(chatId) as any });
       } else if (data.startsWith('order:')) {
         const id = data.split(':')[1];
         await handleShowOrder(chatId, id);
