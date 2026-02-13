@@ -1,108 +1,71 @@
-'use client';
+"use client";
 
 import { useEffect, useState } from 'react';
 
-interface Rate {
-  currency: string;
-  rub: number;
-  lastUpdate: string;
-}
-
-interface Rates {
-  [key: string]: Rate;
-}
+type Rate = { currency: string; rub: number; lastUpdate: string };
+type Rates = Record<string, Rate>;
 
 export default function ExchangeRates() {
-  const [rates, setRates] = useState<Rates | null>(null);
+  const [rates, setRates] = useState<Rates>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const updateRates = async () => {
+    let cancelled = false;
+
+    const fetchRates = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/rates');
-        const data = await response.json();
-        setRates(data);
-      } catch (error) {
-        console.error('Ошибка при получении курсов:', error);
+        const res = await fetch('/api/rates/proxy');
+        const json = await res.json();
+        if (!cancelled && json?.success && json.rates) {
+          setRates(json.rates);
+        }
+      } catch (err) {
+        console.error('fetchRates error', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    updateRates();
-    const interval = setInterval(updateRates, 5 * 60 * 1000);
-
-    // subscribe to server-sent events for realtime updates
-    let es: EventSource | null = null;
-    try {
-      es = new EventSource('/api/rates/stream');
-      es.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          setRates(data);
-        } catch (e) {
-          // ignore malformed
-        }
-      };
-      es.onerror = () => {
-        // on error, close
-        try { es?.close(); } catch {};
-        es = null;
-      };
-    } catch (e) {
-      // ignore
-    }
+    fetchRates();
+    const id = setInterval(fetchRates, 10_000);
 
     return () => {
-      clearInterval(interval);
-      try { es?.close(); } catch {}
+      cancelled = true;
+      clearInterval(id);
     };
   }, []);
 
-  if (loading) {
-    return <div className="text-center p-4" style={{ color: 'var(--foreground)' }}>Загрузка курсов...</div>;
-  }
-
-  if (!rates) {
-    return <div className="text-center p-4" style={{ color: 'var(--foreground)' }}>Не удалось загрузить курсы</div>;
-  }
-
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full" style={{ color: 'var(--foreground)' }}>
-        <thead style={{ background: 'rgba(255,255,255,0.02)' }}>
-          <tr>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--foreground)', opacity: 0.75 }}>
-              Направление обмена
-            </th>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--foreground)', opacity: 0.75 }}>
-              Курс
-            </th>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--foreground)', opacity: 0.75 }}>
-              Обновлено
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {Object.entries(rates).map(([currency, rate]) => (
-            <tr key={currency}>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                {currency} → RUB
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: 'var(--foreground)', opacity: 0.9 }}>
-                {rate.rub.toLocaleString('ru-RU', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 8
-                })} ₽
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: 'var(--foreground)', opacity: 0.9 }}>
-                {new Date(rate.lastUpdate).toLocaleString('ru-RU')}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="mx-auto w-full max-w-md px-1">
+      <div className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-4 shadow-xl backdrop-blur">
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-base font-semibold">Курсы обмена</h3>
+          <span className="text-xs text-[var(--sb-muted-2)]">{loading ? 'Обновление…' : 'Актуально'}</span>
+        </div>
+
+        <div className="mt-3">
+          {loading ? (
+            <div className="text-sm text-[var(--sb-muted)]">Загрузка…</div>
+          ) : Object.keys(rates).length === 0 ? (
+            <div className="text-sm text-[var(--sb-muted)]">Курсы недоступны</div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {Object.entries(rates).map(([ccy, r]) => (
+                <div
+                  key={ccy}
+                  className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+                >
+                  <div className="text-sm font-semibold">{ccy} → RUB</div>
+                  <div className="text-sm text-[var(--sb-muted)]">
+                    {r.rub.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 8 })} ₽
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
