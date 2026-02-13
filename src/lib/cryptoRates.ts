@@ -11,9 +11,9 @@ export type Rates = Record<string, ExchangeRate>;
 
 // Initial sample rates; can be adjusted via updateRate()
 const rates: Rates = {
-  BTC: { currency: "BTC", rub: 10683297, lastUpdate: new Date() },
-  ETH: { currency: "ETH", rub: 395453, lastUpdate: new Date() },
-  USDT: { currency: "USDT", rub: 97.5, lastUpdate: new Date() },
+  BTC: { currency: "BTC", rub: 3500000, lastUpdate: new Date() },
+  ETH: { currency: "ETH", rub: 180000, lastUpdate: new Date() },
+  USDT: { currency: "USDT", rub: 95.45, lastUpdate: new Date() },
 };
 
 // Optional markup configuration
@@ -44,12 +44,12 @@ export function updateRate(currency: string, rubPrice: number): void {
       for (const ctl of Array.from(clients)) {
         try {
           ctl.enqueue(`data: ${payload}\n\n`);
-        } catch (e) {
+        } catch {
           // ignore individual client errors
         }
       }
     }
-  } catch (e) {
+  } catch {
     // ignore
   }
 }
@@ -72,4 +72,5 @@ export function getRateValue(fromCurrency: string, toCurrency: string): number {
   // Unsupported pair in this simple helper
   return 0;
 }
+
 
