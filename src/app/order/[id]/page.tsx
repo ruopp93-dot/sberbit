@@ -20,7 +20,7 @@ export default function OrderPage() {
   }
 
   return (
-    <main className="min-h-screen py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
+    <main className="min-h-screen px-4 pb-16 pt-10">
       <OrderStatus orderId={orderId} />
     </main>
   );
