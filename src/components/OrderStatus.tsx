@@ -41,7 +41,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
               setOrder(cached);
               return;
             }
-          } catch (e) {
+          } catch {
             // ignore parse errors
           }
         }
@@ -75,7 +75,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[200px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white/40"></div>
       </div>
     );
   }
@@ -148,14 +148,12 @@ export function OrderStatus({ orderId }: { orderId: string }) {
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 rounded-lg shadow-lg" style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
-      <h1 className="text-2xl font-bold mb-6" style={{ color: 'var(--foreground)' }}>Заявка ID {order.id}</h1>
-      <p style={{ color: 'var(--foreground)', opacity: 0.85 }} className="mb-6">
-        Данная операция производится в автоматическом режиме.
-      </p>
+    <div className="max-w-2xl mx-auto rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-6 shadow-2xl backdrop-blur">
+      <h1 className="text-2xl font-bold mb-6">Заявка ID {order.id}</h1>
+      <p className="mb-6 text-[var(--sb-muted)]">Данная операция производится в автоматическом режиме.</p>
 
       {order.status.startsWith('Заявка оплачена') && (
-    <div className="mb-6 p-4 border border-green-300 rounded" style={{ background: 'rgba(16,185,129,0.06)', color: 'var(--foreground)' }}>
+        <div className="mb-6 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4">
           <p className="font-semibold mb-2">Заявка оплачена</p>
           <p>Идет проверка Вашего платежа и обработка заявки.</p>
           <p className="mt-4 font-semibold">Заявка оплачена</p>
@@ -165,7 +163,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
         </div>
       )}
 
-  <div className="p-6 rounded-lg mb-6" style={{ background: 'rgba(255,255,255,0.02)', color: 'var(--foreground)' }}>
+      <div className="mb-6 rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] p-6">
         <h2 className="text-xl font-semibold mb-4">Как оплатить</h2>
         <ol className="list-decimal list-inside space-y-2 mb-4">
           <li>
@@ -176,7 +174,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
                     target="_blank"
                     rel="noreferrer noopener"
                     className="underline break-all"
-                    style={{ color: 'var(--accent, #2563eb)' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     {order.paymentDetails?.trim()}
                   </a>
@@ -209,9 +207,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
       </div>
 
       <div className="space-y-2 mb-6">
-  <div className="text-sm" style={{ color: 'var(--foreground)', opacity: 0.85 }}>
-          Время изменения статуса: {order.lastStatusUpdate}
-        </div>
+        <div className="text-sm text-[var(--sb-muted)]">Время изменения статуса: {order.lastStatusUpdate}</div>
         <div className="font-medium">
           Статус заявки: {order.status}
         </div>
@@ -234,13 +230,13 @@ export function OrderStatus({ orderId }: { orderId: string }) {
         </button>
       </div>
 
-  <div className="mt-6 text-sm" style={{ color: 'var(--foreground)', opacity: 0.85 }}>
-      <div className="flex items-center justify-between">
+      <div className="mt-6 text-sm text-[var(--sb-muted)]">
+        <div className="flex items-center justify-between">
           <span>Страница обновляется каждые 30 секунд.</span>
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
             className="hover:underline"
-            style={{ color: 'var(--accent, #2563eb)' }}
+            style={{ color: 'var(--accent)' }}
           >
             {autoRefresh ? 'Выключить обновление' : 'Включить обновление'}
           </button>
