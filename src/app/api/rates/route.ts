@@ -1,37 +1,35 @@
-import { NextResponse } from 'next/server';
-import exchangeRates from '@/lib/exchangeRates';
+import { NextResponse } from "next/server"
+
+let cachedRate: number | null = null
+let lastFetch = 0
 
 export async function GET() {
-  try {
-    const rates = exchangeRates.getRates();
-    return NextResponse.json(rates);
-  } catch (error) {
-    console.error('Ошибка при получении курсов:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при получении курсов' },
-      { status: 500 }
-    );
+  const now = Date.now()
+
+  // кэш 60 секунд
+  if (cachedRate && now - lastFetch < 60000) {
+    return NextResponse.json({ rate: cachedRate })
   }
-}
 
-export async function POST(request: Request) {
   try {
-    const { currency, price } = await request.json();
+    const res = await fetch(
+      "https://api.exchangerate.host/latest?base=USDT&symbols=RUB",
+      { cache: "no-store" }
+    )
 
-    if (!currency || typeof price !== 'number') {
-      return NextResponse.json(
-        { error: 'Необходимо указать валюту и цену' },
-        { status: 400 }
-      );
-    }
+    const data = await res.json()
+    const rate = data?.rates?.RUB
 
-    exchangeRates.updateRate(currency, price);
-    return NextResponse.json(exchangeRates.getRates());
+    if (!rate) throw new Error("Invalid rate")
+
+    cachedRate = rate
+    lastFetch = now
+
+    return NextResponse.json({ rate })
   } catch (error) {
-    console.error('Ошибка при обновлении курса:', error);
     return NextResponse.json(
-      { error: 'Ошибка при обновлении курса' },
+      { error: "Failed to fetch rate" },
       { status: 500 }
-    );
+    )
   }
 }
