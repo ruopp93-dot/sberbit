@@ -1,17 +1,15 @@
 export interface ExchangeOrder {
   id: string;
   status: string;
-  fromAmount: string;
-  fromCurrency: string;
-  toAmount: string;
-  toCurrency: string;
-  toAccount: string;
-  paymentDetails: string;
-  paymentPhone?: string;
-  paymentRecipient?: string;
-  paymentBank?: string;
+  fromAmount: string; // сумма в рублях, введенная пользователем
+  fromCurrency: string; // способ оплаты (банк/МИР/СБП)
+  toAmount: string; // рассчитанная сумма криптовалюты
+  toCurrency: string; // выбранная монета
+  toAccount: string; // адрес кошелька пользователя
+  paymentDetails: string; // реквизиты для оплаты (системные)
   createdAt: string;
   lastStatusUpdate: string;
+  // необязательное поле, если пользователь не вводил реквизиты отправителя
   fromAccount?: string;
   email?: string;
 }
@@ -37,5 +35,5 @@ export const OrdersStore = {
   },
   listBy(fn: (o: ExchangeOrder) => boolean): ExchangeOrder[] {
     return Array.from(orders.values()).filter(fn);
-  },
+  }
 };
