@@ -15,10 +15,10 @@ export default function ExchangeRates() {
     const fetchRates = async () => {
       try {
         setLoading(true);
-        const res = await fetch('/api/rates/proxy');
+        const res = await fetch('/api/rates');
         const json = await res.json();
-        if (!cancelled && json?.success && json.rates) {
-          setRates(json.rates);
+        if (!cancelled && json && typeof json === 'object' && !json.error) {
+          setRates(json);
         }
       } catch (err) {
         console.error('fetchRates error', err);

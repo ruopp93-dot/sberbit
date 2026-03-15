@@ -1,35 +1,29 @@
 import { NextResponse } from "next/server"
+import { getRates, updateRate } from "@/lib/cryptoRates"
 
-let cachedRate: number | null = null
 let lastFetch = 0
 
 export async function GET() {
   const now = Date.now()
 
-  // кэш 60 секунд
-  if (cachedRate && now - lastFetch < 60000) {
-    return NextResponse.json({ rate: cachedRate })
+  // Обновляем курсы с CoinGecko раз в 60 секунд
+  if (now - lastFetch > 60000) {
+    try {
+      const res = await fetch(
+        "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether&vs_currencies=rub",
+        { cache: "no-store" }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (data?.tether?.rub) updateRate("USDT", data.tether.rub)
+        if (data?.bitcoin?.rub) updateRate("BTC", data.bitcoin.rub)
+        if (data?.ethereum?.rub) updateRate("ETH", data.ethereum.rub)
+        lastFetch = now
+      }
+    } catch {
+      // Используем кэшированные/начальные курсы
+    }
   }
 
-  try {
-    const res = await fetch(
-      "https://api.exchangerate.host/latest?base=USDT&symbols=RUB",
-      { cache: "no-store" }
-    )
-
-    const data = await res.json()
-    const rate = data?.rates?.RUB
-
-    if (!rate) throw new Error("Invalid rate")
-
-    cachedRate = rate
-    lastFetch = now
-
-    return NextResponse.json({ rate })
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to fetch rate" },
-      { status: 500 }
-    )
-  }
+  return NextResponse.json(getRates())
 }
