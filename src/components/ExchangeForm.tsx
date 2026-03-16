@@ -125,7 +125,7 @@ export function ExchangeForm() {
 
   const [ratesLoaded, setRatesLoaded] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [captchaQuestion, setCaptchaQuestion] = useState<string | null>(null);
+  const [captchaImage, setCaptchaImage] = useState<string | null>(null);
   const [captchaAnswer, setCaptchaAnswer] = useState('');
 
   const amount = watch('amount');
@@ -198,15 +198,15 @@ export function ExchangeForm() {
     const res = await fetch('/api/captcha');
     const json = await res.json();
     setCaptchaToken(json.token);
-    setCaptchaQuestion(json.question);
+    setCaptchaImage(json.imageData);
     setCaptchaAnswer('');
   }, []);
 
   useEffect(() => {
     if (stage !== 'details') return;
-    if (captchaToken && captchaQuestion) return;
+    if (captchaToken && captchaImage) return;
     fetchCaptcha().catch(() => {});
-  }, [stage, captchaToken, captchaQuestion, fetchCaptcha]);
+  }, [stage, captchaToken, captchaImage, fetchCaptcha]);
 
   const onSubmit = async (data: ExchangeFormData) => {
     try {
@@ -218,7 +218,7 @@ export function ExchangeForm() {
         const cRes = await fetch('/api/captcha');
         const cData = await cRes.json();
         setCaptchaToken(cData.token);
-        setCaptchaQuestion(cData.question);
+        setCaptchaImage(cData.imageData);
         alert('Пожалуйста, введите ответ на капчу и повторите отправку.');
         return;
       }
@@ -250,7 +250,7 @@ export function ExchangeForm() {
             if (cRes.ok) {
               const cData = await cRes.json();
               setCaptchaToken(cData.token);
-              setCaptchaQuestion(cData.question);
+              setCaptchaImage(cData.imageData);
               setCaptchaAnswer('');
             }
           } catch { /* ignore */ }
@@ -430,26 +430,38 @@ export function ExchangeForm() {
                 border: '1px solid rgba(255,255,255,0.08)',
               }}
             >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs" style={{ color: 'rgba(232,237,246,0.6)' }}>Капча</div>
-                  <div className="mt-1 text-sm font-medium text-[var(--foreground)]">
-                    {captchaQuestion ?? 'Загрузка…'}
-                  </div>
-                </div>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs" style={{ color: 'rgba(232,237,246,0.6)' }}>Введите ответ на капчу</div>
                 <button
                   type="button"
                   onClick={() => fetchCaptcha().catch(() => alert('Не удалось обновить капчу.'))}
-                  className="shrink-0 rounded-lg px-3 py-2 text-xs transition-colors"
+                  className="shrink-0 rounded-lg px-2 py-1 text-xs transition-opacity hover:opacity-80"
                   style={{
                     background: 'rgba(0,0,0,0.2)',
                     border: '1px solid rgba(255,255,255,0.1)',
-                    color: 'rgba(232,237,246,0.6)',
+                    color: 'rgba(232,237,246,0.55)',
                   }}
+                  title="Обновить капчу"
                 >
-                  Обновить
+                  ↻ Обновить
                 </button>
               </div>
+              {captchaImage ? (
+                <img
+                  src={captchaImage}
+                  alt="Капча"
+                  className="w-full rounded-lg select-none"
+                  style={{ imageRendering: 'crisp-edges', userSelect: 'none', pointerEvents: 'none' }}
+                  draggable={false}
+                />
+              ) : (
+                <div
+                  className="flex items-center justify-center rounded-lg"
+                  style={{ height: 64, background: 'rgba(0,0,0,0.2)', color: 'rgba(232,237,246,0.4)', fontSize: 13 }}
+                >
+                  Загрузка…
+                </div>
+              )}
               <input
                 value={captchaAnswer}
                 onChange={(e) => setCaptchaAnswer(e.target.value)}
@@ -459,6 +471,7 @@ export function ExchangeForm() {
                   border: '1px solid rgba(255,255,255,0.1)',
                 }}
                 placeholder="Ответ"
+                inputMode="numeric"
               />
             </div>
 

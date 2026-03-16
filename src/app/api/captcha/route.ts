@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
-import { CaptchaStore } from '@/lib/captchaStore';
+import { NextResponse } from 'next/server'
+import { CaptchaStore } from '@/lib/captchaStore'
 
 export async function GET() {
-  const { token, question } = CaptchaStore.create();
-  return NextResponse.json({ token, question });
+  const { token, imageData } = CaptchaStore.create()
+  return NextResponse.json({ token, imageData })
 }
