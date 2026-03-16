@@ -1,4 +1,6 @@
-// Payment requisites stored in memory (survives HMR in dev)
+// Payment requisites
+// Defaults are loaded from env vars (PAYMENT_PHONE, PAYMENT_RECIPIENT, PAYMENT_BANK)
+// so admin changes persist across Vercel cold starts when env vars are updated.
 const globalKey = '__SB_PAYMENT_CONFIG_V1__';
 const _g: any = (globalThis as any);
 
@@ -10,9 +12,9 @@ export interface PaymentConfig {
 
 if (!_g[globalKey]) {
   _g[globalKey] = {
-    phone: '+7 999 000-00-00',
-    recipient: 'ИВАН ИВАНОВ',
-    bank: 'Тинькофф',
+    phone: process.env.PAYMENT_PHONE || '+7 999 000-00-00',
+    recipient: process.env.PAYMENT_RECIPIENT || 'ИВАН ИВАНОВ',
+    bank: process.env.PAYMENT_BANK || 'Тинькофф',
   } as PaymentConfig;
 }
 

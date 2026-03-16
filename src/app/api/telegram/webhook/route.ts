@@ -300,7 +300,11 @@ export async function POST(request: NextRequest) {
             const { updateRate } = await import('@/lib/cryptoRates');
             updateRate(currency, parsed);
             PendingActions.delete(String(chatId));
-            await bot.api.sendMessage(chatId, `✅ Курс ${currency} обновлён: ${parsed} ₽`, { reply_markup: buildMainMenu() as any });
+            await bot.api.sendMessage(
+              chatId,
+              `✅ Курс ${currency} обновлён: ${parsed} ₽\n\n💡 Чтобы изменение сохранялось после перезапуска сервера — обновите переменную окружения DEFAULT_${currency}_RATE=${parsed} в Vercel.`,
+              { reply_markup: buildMainMenu() as any }
+            );
           } catch (e) {
             await bot.api.sendMessage(chatId, `Ошибка обновления курса: ${String(e)}`);
           }
@@ -313,9 +317,10 @@ export async function POST(request: NextRequest) {
           PaymentConfigStore.update({ [field]: text });
           PendingActions.delete(String(chatId));
           const fieldNames: Record<string, string> = { phone: 'Телефон', recipient: 'Получатель', bank: 'Банк' };
+          const envKeys: Record<string, string> = { phone: 'PAYMENT_PHONE', recipient: 'PAYMENT_RECIPIENT', bank: 'PAYMENT_BANK' };
           await bot.api.sendMessage(
             chatId,
-            `✅ ${fieldNames[field] || field} обновлён: ${text}`,
+            `✅ ${fieldNames[field] || field} обновлён: ${text}\n\n💡 Для постоянного хранения обновите переменную окружения ${envKeys[field]}="${text}" в Vercel.`,
             { reply_markup: buildRequisitesMenu() as any }
           );
           return NextResponse.json({ ok: true });

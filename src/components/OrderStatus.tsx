@@ -21,11 +21,59 @@ interface ExchangeOrder {
 
 const PAYMENT_TIMEOUT_MS = 15 * 60 * 1000;
 
+// Bank quick-pay buttons
 const BANK_BUTTONS = [
-  { name: 'Тинькофф', bg: '#FFDD00', fg: '#000', icon: 'T', scheme: 'tinkoff://transfer?phone=' },
-  { name: 'Сбербанк', bg: '#21A038', fg: '#fff', icon: 'S', scheme: 'sberbankonline://payment?phone=' },
-  { name: 'ВТБ', bg: '#009FDF', fg: '#fff', icon: '≡', scheme: 'vtbmobile://transfer?phone=' },
-  { name: 'Альфа-Банк', bg: '#EF3124', fg: '#fff', icon: 'A', scheme: 'alfabank://payment?phone=' },
+  {
+    name: 'Тинькофф',
+    bg: '#FFDD00',
+    fg: '#000000',
+    scheme: 'tinkoff://transfer?phone=',
+    icon: (
+      <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
+        <rect width="36" height="36" rx="18" fill="rgba(0,0,0,0.2)" />
+        <text x="18" y="25" textAnchor="middle" fontSize="17" fontWeight="800" fill="#000" fontFamily="Arial, sans-serif">T</text>
+      </svg>
+    ),
+  },
+  {
+    name: 'Сбербанк',
+    bg: '#1DA462',
+    fg: '#ffffff',
+    scheme: 'sberbankonline://payment?phone=',
+    icon: (
+      <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
+        <rect width="36" height="36" rx="18" fill="rgba(0,0,0,0.15)" />
+        <circle cx="18" cy="18" r="9" stroke="#fff" strokeWidth="2" fill="none" />
+        <path d="M13 18l3.5 3.5L23 13" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    name: 'ВТБ',
+    bg: '#009FDF',
+    fg: '#ffffff',
+    scheme: 'vtbmobile://transfer?phone=',
+    icon: (
+      <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
+        <rect width="36" height="36" rx="18" fill="rgba(0,0,0,0.15)" />
+        <rect x="10" y="13" width="16" height="2.5" rx="1.25" fill="#fff" />
+        <rect x="10" y="17.5" width="16" height="2.5" rx="1.25" fill="#fff" />
+        <rect x="10" y="22" width="16" height="2.5" rx="1.25" fill="#fff" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Альфа-Банк',
+    bg: '#EF3124',
+    fg: '#ffffff',
+    scheme: 'alfabank://payment?phone=',
+    icon: (
+      <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
+        <rect width="36" height="36" rx="18" fill="rgba(0,0,0,0.15)" />
+        <text x="18" y="25" textAnchor="middle" fontSize="18" fontWeight="800" fill="#fff" fontFamily="Arial, sans-serif">А</text>
+      </svg>
+    ),
+  },
 ] as const;
 
 function CopyButton({ text }: { text: string }) {
@@ -37,15 +85,16 @@ function CopyButton({ text }: { text: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }}
-      className="ml-2 rounded-lg p-2 text-[var(--sb-muted)] hover:bg-white/10 hover:text-[var(--foreground)] transition-colors"
+      className="ml-2 rounded-lg p-2 transition-colors"
+      style={{ color: copied ? '#34d399' : 'rgba(232,237,246,0.5)' }}
       title="Скопировать"
     >
       {copied ? (
-        <svg viewBox="0 0 24 24" className="h-4 w-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
           <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       ) : (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </svg>
@@ -68,24 +117,51 @@ function PaymentTimer({ orderId }: { orderId: string }) {
 
   if (timeLeft === 0) {
     return (
-      <div className="flex items-center gap-3 rounded-2xl border border-red-500/30 bg-red-900/20 px-5 py-4">
+      <div
+        className="flex items-center gap-3 rounded-2xl px-5 py-4"
+        style={{ background: 'rgba(220,38,38,0.15)', border: '1px solid rgba(220,38,38,0.3)' }}
+      >
         <span className="font-semibold text-red-400">Время оплаты истекло</span>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-red-500/30 bg-red-900/20 px-5 py-4">
+    <div
+      className="flex items-center gap-3 rounded-2xl px-5 py-4"
+      style={{ background: 'rgba(127,0,0,0.25)', border: '1px solid rgba(220,38,38,0.3)' }}
+    >
       <div className="flex items-center gap-1">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-red-600 text-lg font-bold text-white">
+        <span
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-lg font-bold text-white"
+          style={{ background: '#dc2626' }}
+        >
           {String(mins).padStart(2, '0')}
         </span>
         <span className="text-lg font-bold text-red-400 px-0.5">:</span>
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-red-600 text-lg font-bold text-white">
+        <span
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-lg font-bold text-white"
+          style={{ background: '#dc2626' }}
+        >
           {String(secs).padStart(2, '0')}
         </span>
       </div>
       <span className="text-sm text-[var(--foreground)]">Осталось для оплаты</span>
+    </div>
+  );
+}
+
+function InfoCard({ label, value, copyable }: { label: string; value: string; copyable?: boolean }) {
+  return (
+    <div
+      className="rounded-2xl px-5 py-4"
+      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+    >
+      <div className="mb-1 text-xs" style={{ color: 'rgba(232,237,246,0.55)' }}>{label}</div>
+      <div className="flex items-center justify-between">
+        <span className="text-base font-semibold text-[var(--foreground)]">{value}</span>
+        {copyable && <CopyButton text={value} />}
+      </div>
     </div>
   );
 }
@@ -183,79 +259,54 @@ export function OrderStatus({ orderId }: { orderId: string }) {
 
   return (
     <div className="mx-auto max-w-md space-y-3">
-      {/* Amount header */}
+      {/* Amount header banner */}
       <div
-        className="overflow-hidden rounded-2xl border border-purple-500/20"
-        style={{ background: 'linear-gradient(135deg, #2d1f5e 0%, #1a1040 100%)' }}
+        className="overflow-hidden rounded-2xl"
+        style={{ background: 'linear-gradient(135deg, #3d1d8c 0%, #2a1260 50%, #1a0a40 100%)', border: '1px solid rgba(139,92,246,0.2)' }}
       >
         <div className="px-5 py-6 text-center">
-          <div className="mb-1 text-sm text-purple-300/80">К оплате</div>
-          <div className="text-4xl font-bold text-white">
-            {order.fromAmount}{' '}
-            <span className="text-2xl font-semibold text-purple-200">RUB</span>
+          <div className="mb-2 text-sm font-medium" style={{ color: 'rgba(196,170,255,0.8)' }}>К оплате</div>
+          <div className="text-5xl font-bold text-white tracking-tight">
+            {order.fromAmount}
           </div>
+          <div className="mt-1 text-xl font-semibold" style={{ color: 'rgba(196,170,255,0.9)' }}>RUB</div>
         </div>
       </div>
 
       {/* Status banners */}
       {isPaid && (
-        <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-5 py-4">
+        <div
+          className="rounded-2xl px-5 py-4"
+          style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(52,211,153,0.3)' }}
+        >
           <p className="font-semibold text-emerald-400">Заявка оплачена</p>
-          <p className="mt-1 text-sm text-[var(--sb-muted)]">
+          <p className="mt-1 text-sm" style={{ color: 'rgba(232,237,246,0.65)' }}>
             Идёт проверка платежа и обработка заявки. Это занимает 15–90 минут.
           </p>
         </div>
       )}
       {isCanceled && (
-        <div className="rounded-2xl border border-red-400/30 bg-red-500/10 px-5 py-4">
+        <div
+          className="rounded-2xl px-5 py-4"
+          style={{ background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)' }}
+        >
           <p className="font-semibold text-red-400">Заявка отменена</p>
         </div>
       )}
 
-      {/* Timer + Payment details (only if pending) */}
+      {/* Payment instructions (only while pending) */}
       {!isPaid && !isCanceled && (
         <>
           <PaymentTimer orderId={orderId} />
 
-          {/* Phone */}
-          {phone && (
-            <div className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] px-5 py-4">
-              <div className="mb-1 text-xs text-[var(--sb-muted)]">Телефон для перевода</div>
-              <div className="flex items-center justify-between">
-                <span className="text-lg font-semibold">{phone}</span>
-                <CopyButton text={phone} />
-              </div>
-            </div>
-          )}
+          {phone && <InfoCard label="Телефон для перевода" value={phone} copyable />}
+          <InfoCard label="Сумма к переводу" value={`${order.fromAmount} RUB`} copyable />
+          {order.paymentRecipient && <InfoCard label="Получатель" value={order.paymentRecipient} />}
+          {order.paymentBank && <InfoCard label="Банк" value={order.paymentBank} />}
 
-          {/* Amount to transfer */}
-          <div className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] px-5 py-4">
-            <div className="mb-1 text-xs text-[var(--sb-muted)]">Сумма к переводу</div>
-            <div className="flex items-center justify-between">
-              <span className="text-lg font-semibold">{order.fromAmount} RUB</span>
-              <CopyButton text={order.fromAmount} />
-            </div>
-          </div>
-
-          {/* Recipient */}
-          {order.paymentRecipient && (
-            <div className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] px-5 py-4">
-              <div className="mb-1 text-xs text-[var(--sb-muted)]">Получатель</div>
-              <div className="text-base font-semibold">{order.paymentRecipient}</div>
-            </div>
-          )}
-
-          {/* Bank */}
-          {order.paymentBank && (
-            <div className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] px-5 py-4">
-              <div className="mb-1 text-xs text-[var(--sb-muted)]">Банк</div>
-              <div className="text-base font-semibold">{order.paymentBank}</div>
-            </div>
-          )}
-
-          {/* Quick pay buttons */}
+          {/* Quick pay bank buttons */}
           {rawPhone && (
-            <div className="space-y-2">
+            <div className="space-y-2 pt-1">
               {BANK_BUTTONS.map((btn) => (
                 <a
                   key={btn.name}
@@ -264,66 +315,68 @@ export function OrderStatus({ orderId }: { orderId: string }) {
                   style={{ background: btn.bg, color: btn.fg }}
                 >
                   <div>
-                    <div className="text-base">Оплатить</div>
-                    <div className="text-xs opacity-80">В 1 клик</div>
+                    <div className="text-base font-bold">Оплатить</div>
+                    <div className="text-xs opacity-75">В 1 клик</div>
                   </div>
-                  <span
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-base font-bold"
-                    style={{ background: 'rgba(0,0,0,0.15)' }}
-                  >
-                    {btn.icon}
-                  </span>
+                  {btn.icon}
                 </a>
               ))}
             </div>
           )}
 
           {/* Confirm / Cancel */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 pt-1">
             <button
               onClick={handleCancel}
-              className="flex-1 rounded-xl border px-4 py-3 text-sm font-semibold transition-opacity hover:opacity-80"
-              style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+              className="flex-1 rounded-xl px-4 py-3 text-sm font-semibold transition-opacity hover:opacity-80"
+              style={{
+                border: '1px solid rgba(220,38,38,0.5)',
+                color: '#f87171',
+                background: 'rgba(220,38,38,0.08)',
+              }}
             >
-              Отменить заявку
+              Отменить
             </button>
             <button
               onClick={handlePaymentConfirm}
-              className="flex-1 rounded-xl px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-              style={{ background: 'var(--success)' }}
+              className="flex-1 rounded-xl px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90"
+              style={{ background: 'linear-gradient(180deg, #3ecb6f 0%, #1a9e4a 100%)' }}
             >
-              Я оплатил заявку
+              Я оплатил
             </button>
           </div>
         </>
       )}
 
       {/* Order summary */}
-      <div className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] px-5 py-4 text-sm">
+      <div
+        className="rounded-2xl px-5 py-4 text-sm"
+        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+      >
         <div className="space-y-2">
           <div className="flex justify-between">
-            <span className="text-[var(--sb-muted)]">Заявка</span>
-            <span>#{order.id}</span>
+            <span style={{ color: 'rgba(232,237,246,0.55)' }}>Заявка</span>
+            <span className="font-mono text-xs">#{order.id}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[var(--sb-muted)]">Статус</span>
-            <span className="max-w-[200px] text-right">{order.status}</span>
+            <span style={{ color: 'rgba(232,237,246,0.55)' }}>Статус</span>
+            <span className="max-w-[200px] text-right text-xs">{order.status}</span>
           </div>
-          <div className="h-px bg-white/5" />
+          <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
           <div className="flex justify-between">
-            <span className="text-[var(--sb-muted)]">Отдаёте</span>
+            <span style={{ color: 'rgba(232,237,246,0.55)' }}>Отдаёте</span>
             <span>{order.fromAmount} {order.fromCurrency}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[var(--sb-muted)]">Получаете</span>
+            <span style={{ color: 'rgba(232,237,246,0.55)' }}>Получаете</span>
             <span>{order.toAmount} {order.toCurrency}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[var(--sb-muted)]">Кошелёк</span>
+            <span style={{ color: 'rgba(232,237,246,0.55)' }}>Кошелёк</span>
             <span className="max-w-[200px] break-all text-right text-xs">{order.toAccount}</span>
           </div>
-          <div className="h-px bg-white/5" />
-          <div className="flex justify-between text-xs text-[var(--sb-muted-2)]">
+          <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+          <div className="flex justify-between text-xs" style={{ color: 'rgba(232,237,246,0.4)' }}>
             <span>Обновлено</span>
             <span>{order.lastStatusUpdate}</span>
           </div>
@@ -331,8 +384,8 @@ export function OrderStatus({ orderId }: { orderId: string }) {
       </div>
 
       {/* Auto-refresh toggle */}
-      <div className="flex items-center justify-between px-1 text-xs text-[var(--sb-muted-2)]">
-        <span>Страница обновляется каждые 30 сек.</span>
+      <div className="flex items-center justify-between px-1 text-xs" style={{ color: 'rgba(232,237,246,0.4)' }}>
+        <span>Обновляется каждые 30 сек.</span>
         <button
           onClick={() => setAutoRefresh(!autoRefresh)}
           className="hover:underline"

@@ -73,20 +73,35 @@ function ChevronDownIcon({ className }: { className?: string }) {
 }
 
 function CryptoIcon({ ticker }: { ticker: string }) {
-  const style =
-    ticker === 'USDT'
-      ? { background: 'linear-gradient(180deg, #22c55e 0%, #16a34a 100%)' }
-      : ticker === 'BTC'
-        ? { background: 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)' }
-        : { background: 'linear-gradient(180deg, #818cf8 0%, #4f46e5 100%)' };
-  const text = ticker === 'USDT' ? 'T' : ticker === 'BTC' ? '₿' : 'Ξ';
+  if (ticker === 'USDT') {
+    return (
+      <span
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base font-bold text-white shadow"
+        style={{ background: 'linear-gradient(180deg, #26a17b 0%, #1a8c66 100%)' }}
+        aria-hidden="true"
+      >
+        ₮
+      </span>
+    );
+  }
+  if (ticker === 'BTC') {
+    return (
+      <span
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base font-bold text-white shadow"
+        style={{ background: 'linear-gradient(180deg, #f7931a 0%, #e07810 100%)' }}
+        aria-hidden="true"
+      >
+        ₿
+      </span>
+    );
+  }
   return (
     <span
-      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base font-semibold text-white shadow"
-      style={style}
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base font-bold text-white shadow"
+      style={{ background: 'linear-gradient(180deg, #627eea 0%, #4c6bd6 100%)' }}
       aria-hidden="true"
     >
-      {text}
+      Ξ
     </span>
   );
 }
@@ -248,82 +263,100 @@ export function ExchangeForm() {
   };
 
   return (
-    <div className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-5 shadow-2xl">
+    <div
+      className="rounded-2xl shadow-2xl overflow-hidden"
+      style={{
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%)',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}
+    >
       <form
-        className="space-y-4"
+        className="p-5 space-y-3"
         onSubmit={(e) => {
           if (stage !== 'details') { e.preventDefault(); void goToDetails(); return; }
           void handleSubmit(onSubmit)(e);
         }}
       >
-        {/* From */}
-        <div>
-          <div className="mb-2 text-xs text-[var(--sb-muted)]">Отдаёте</div>
-          <div className="flex items-center gap-3 rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3">
-            <span
-              className="h-7 w-10 shrink-0 rounded-sm border border-white/10"
-              style={{ background: 'linear-gradient(to bottom, #ffffff 0 33%, #2563eb 33% 66%, #ef4444 66% 100%)' }}
-              aria-hidden="true"
-            />
-            <div className="relative min-w-0 flex-1">
-              <select
-                {...register('fromCurrency')}
-                className="w-full appearance-none bg-transparent pr-8 text-base font-semibold text-[var(--foreground)] outline-none"
-              >
-                {paymentMethods.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-              <ChevronDownIcon className="pointer-events-none absolute right-1 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--sb-muted-2)]" />
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--sb-border)] bg-black/20 px-3 py-2">
-              <input
-                type="text"
-                inputMode="decimal"
-                {...register('amount')}
-                className="w-24 bg-transparent text-right text-lg font-semibold text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
-                placeholder="50 000"
-              />
-              <span className="text-sm font-semibold text-[var(--sb-muted)]">₽</span>
-            </div>
-          </div>
-          {errors.amount && <p className="mt-1 text-xs text-red-400">{errors.amount.message}</p>}
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-white/10" />
-          <span className="text-[var(--sb-muted-2)]">
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+        {/* FROM row */}
+        <div
+          className="flex items-center gap-3 rounded-xl px-3 py-3"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          {/* Russian flag */}
+          <span
+            className="h-7 w-10 shrink-0 rounded-sm overflow-hidden"
+            style={{ border: '1px solid rgba(255,255,255,0.15)' }}
+            aria-hidden="true"
+          >
+            <div style={{ height: '33.33%', background: '#fff' }} />
+            <div style={{ height: '33.33%', background: '#003DA5' }} />
+            <div style={{ height: '33.33%', background: '#CC0000' }} />
           </span>
-          <div className="h-px flex-1 bg-white/10" />
+          <div className="relative flex-1 min-w-0">
+            <select
+              {...register('fromCurrency')}
+              className="w-full appearance-none bg-transparent pr-6 text-base font-semibold text-[var(--foreground)] outline-none cursor-pointer"
+            >
+              {paymentMethods.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <ChevronDownIcon className="pointer-events-none absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--sb-muted-2)]" />
+          </div>
+          {/* Amount input */}
+          <div
+            className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 cursor-text"
+            style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <input
+              type="text"
+              inputMode="decimal"
+              {...register('amount')}
+              className="w-24 bg-transparent text-right text-lg font-bold text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
+              placeholder="50 000"
+            />
+            <span className="text-sm font-semibold" style={{ color: 'rgba(232,237,246,0.6)' }}>₽</span>
+          </div>
+        </div>
+        {errors.amount && <p className="text-xs text-red-400 -mt-1 px-1">{errors.amount.message}</p>}
+
+        {/* Divider */}
+        <div className="flex items-center gap-2 px-1">
+          <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.08)' }} />
+          <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'rgba(232,237,246,0.3)' }}>
+            <path d="M5 11V3m0 0L2 6m3-3l3 3M11 5v8m0 0l3-3m-3 3l-3-3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.08)' }} />
         </div>
 
-        {/* To */}
-        <div>
-          <div className="mb-2 text-xs text-[var(--sb-muted)]">Получаете</div>
-          <div className="flex items-center gap-3 rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3">
-            <CryptoIcon ticker={cryptoTicker} />
-            <div className="relative min-w-0 flex-1">
-              <select
-                {...register('toCurrency')}
-                className="w-full appearance-none bg-transparent pr-8 text-base font-semibold text-[var(--foreground)] outline-none"
-              >
-                {cryptoOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <ChevronDownIcon className="pointer-events-none absolute right-1 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--sb-muted-2)]" />
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--sb-border)] bg-black/20 px-3 py-2">
-              <span className="text-sm text-[var(--sb-muted)]">≈</span>
-              <span className="text-lg font-semibold text-[var(--foreground)]">
-                {isCalculating ? '…' : formatNumber(estimatedAmount, { maximumFractionDigits: 8 })}
-              </span>
-              <span className="text-sm font-semibold text-[var(--sb-muted)]">{cryptoTicker}</span>
-            </div>
+        {/* TO row */}
+        <div
+          className="flex items-center gap-3 rounded-xl px-3 py-3"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <CryptoIcon ticker={cryptoTicker} />
+          <div className="relative flex-1 min-w-0">
+            <select
+              {...register('toCurrency')}
+              className="w-full appearance-none bg-transparent pr-6 text-base font-semibold text-[var(--foreground)] outline-none cursor-pointer"
+            >
+              {cryptoOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <ChevronDownIcon className="pointer-events-none absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--sb-muted-2)]" />
+          </div>
+          {/* Estimated output */}
+          <div
+            className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2"
+            style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <span className="text-sm" style={{ color: 'rgba(232,237,246,0.5)' }}>≈</span>
+            <span className="text-lg font-bold text-[var(--foreground)]">
+              {isCalculating ? '…' : formatNumber(estimatedAmount, { maximumFractionDigits: 8 })}
+            </span>
+            <span className="text-sm font-semibold" style={{ color: 'rgba(232,237,246,0.6)' }}>{cryptoTicker}</span>
           </div>
         </div>
 
         {/* Rate info */}
-        <div className="space-y-1 text-sm text-[var(--sb-muted)]">
+        <div className="space-y-1 px-1 text-sm" style={{ color: 'rgba(232,237,246,0.6)' }}>
           <div>
             Курс:{' '}
             <span className="font-semibold text-[var(--foreground)]">
@@ -340,33 +373,47 @@ export function ExchangeForm() {
 
         {/* Details stage */}
         {stage === 'details' && (
-          <div className="space-y-3 border-t border-white/10 pt-3">
+          <div className="space-y-3 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
             <div>
-              <label className="mb-1 block text-xs text-[var(--sb-muted)]">Email</label>
+              <label className="mb-1 block text-xs" style={{ color: 'rgba(232,237,246,0.6)' }}>Email для уведомлений</label>
               <input
                 type="email"
                 {...register('email')}
-                className="block w-full rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)] focus:border-[var(--sb-border-strong)]"
+                className="block w-full rounded-xl px-3 py-3 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
                 placeholder="your@email.com"
               />
               {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email.message}</p>}
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-[var(--sb-muted)]">Адрес кошелька</label>
+              <label className="mb-1 block text-xs" style={{ color: 'rgba(232,237,246,0.6)' }}>Адрес {cryptoTicker} кошелька</label>
               <input
                 type="text"
                 {...register('walletAddress')}
-                className="block w-full rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)] focus:border-[var(--sb-border-strong)]"
+                className="block w-full rounded-xl px-3 py-3 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
                 placeholder="Введите адрес кошелька"
               />
               {errors.walletAddress && <p className="mt-1 text-xs text-red-400">{errors.walletAddress.message}</p>}
             </div>
 
-            <div className="rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3">
+            <div
+              className="rounded-xl px-3 py-3"
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs text-[var(--sb-muted)]">Капча</div>
+                  <div className="text-xs" style={{ color: 'rgba(232,237,246,0.6)' }}>Капча</div>
                   <div className="mt-1 text-sm font-medium text-[var(--foreground)]">
                     {captchaQuestion ?? 'Загрузка…'}
                   </div>
@@ -374,7 +421,12 @@ export function ExchangeForm() {
                 <button
                   type="button"
                   onClick={() => fetchCaptcha().catch(() => alert('Не удалось обновить капчу.'))}
-                  className="shrink-0 rounded-lg border border-[var(--sb-border)] bg-black/20 px-3 py-2 text-xs text-[var(--sb-muted)] hover:text-[var(--foreground)]"
+                  className="shrink-0 rounded-lg px-3 py-2 text-xs transition-colors"
+                  style={{
+                    background: 'rgba(0,0,0,0.2)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    color: 'rgba(232,237,246,0.6)',
+                  }}
                 >
                   Обновить
                 </button>
@@ -382,7 +434,11 @@ export function ExchangeForm() {
               <input
                 value={captchaAnswer}
                 onChange={(e) => setCaptchaAnswer(e.target.value)}
-                className="mt-3 block w-full rounded-lg border border-[var(--sb-border)] bg-black/20 px-3 py-2 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)] focus:border-[var(--sb-border-strong)]"
+                className="mt-3 block w-full rounded-lg px-3 py-2 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
+                style={{
+                  background: 'rgba(0,0,0,0.2)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                }}
                 placeholder="Ответ"
               />
             </div>
@@ -390,24 +446,26 @@ export function ExchangeForm() {
             <button
               type="button"
               onClick={() => setStage('quick')}
-              className="text-sm text-[var(--sb-muted)] hover:text-[var(--foreground)] hover:underline"
+              className="text-sm hover:underline"
+              style={{ color: 'rgba(232,237,246,0.5)' }}
             >
               ← Назад
             </button>
           </div>
         )}
 
+        {/* Main button */}
         <button
           type={stage === 'details' ? 'submit' : 'button'}
           onClick={stage === 'details' ? undefined : () => void goToDetails()}
-          className="w-full rounded-xl px-4 py-4 text-center text-lg font-semibold text-white shadow-lg transition-opacity hover:opacity-90"
-          style={{ background: 'linear-gradient(180deg, var(--accent) 0%, var(--accent-2) 100%)' }}
+          className="w-full rounded-xl px-4 py-4 text-center text-lg font-bold text-white shadow-lg transition-opacity hover:opacity-90 active:opacity-80"
+          style={{ background: 'linear-gradient(180deg, #3ecb6f 0%, #1a9e4a 100%)' }}
         >
           Начать обмен
         </button>
 
-        <p className="text-xs text-[var(--sb-muted-2)]">
-          Курс фиксируется на момент создания заявки и может незначительно измениться.
+        <p className="text-center text-xs" style={{ color: 'rgba(232,237,246,0.35)' }}>
+          Курс фиксируется на момент создания заявки
         </p>
       </form>
     </div>
