@@ -4,8 +4,8 @@ import { Navigation } from "@/components/Navigation";
 import { TelegramSupport } from "@/components/TelegramSupport";
 
 export const metadata: Metadata = {
-  title: "SberBits — Обмен криптовалют",
-  description: "Быстрый и безопасный обмен USDT, BTC, ETH на рубли. Переводы через Тинькофф, Сбербанк, СБП.",
+  title: "Обмен криптовалют",
+  description: "Быстрый и безопасный обмен криптовалют на рубли и обратно",
 };
 
 export default function RootLayout({
