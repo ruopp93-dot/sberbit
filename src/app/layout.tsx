@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { Navigation } from "@/components/Navigation";
 import { TelegramSupport } from "@/components/TelegramSupport";
+
+const inter = Inter({
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "SberBits — Обмен криптовалют",
@@ -16,7 +22,7 @@ export default function RootLayout({
   return (
     <html lang="ru">
   {/* no inline theme script to avoid hydration mismatch; ThemeToggle updates CSS variables on user interaction */}
-      <body className={`antialiased bg-[var(--background)] text-[var(--foreground)]`}>
+      <body className={`${inter.variable} antialiased bg-[var(--background)] text-[var(--foreground)]`}>
         <Navigation />
         {children}
         <TelegramSupport />
