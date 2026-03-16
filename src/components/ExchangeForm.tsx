@@ -9,32 +9,18 @@ import Decimal from 'decimal.js';
 function normalizeAmountInput(value: string): string {
   const v = String(value ?? '').trim().replace(/\s+/g, '');
   if (!v) return '';
-
   const hasComma = v.includes(',');
   const hasDot = v.includes('.');
-
-  // If both are present, assume commas are thousand separators.
-  if (hasComma && hasDot) {
-    return v.replace(/,/g, '');
-  }
-
-  // If only comma is present, decide whether it's decimal or thousand separator.
+  if (hasComma && hasDot) return v.replace(/,/g, '');
   if (hasComma && !hasDot) {
     const parts = v.split(',');
-    if (parts.length === 2 && parts[1].length === 3) {
-      return parts[0] + parts[1];
-    }
+    if (parts.length === 2 && parts[1].length === 3) return parts[0] + parts[1];
     return v.replace(/,/g, '.');
   }
-
-  // If only dot is present, it might be a thousand separator in some inputs.
   if (hasDot && !hasComma) {
     const parts = v.split('.');
-    if (parts.length === 2 && parts[1].length === 3) {
-      return parts[0] + parts[1];
-    }
+    if (parts.length === 2 && parts[1].length === 3) return parts[0] + parts[1];
   }
-
   return v;
 }
 
@@ -64,18 +50,13 @@ const exchangeFormSchema = z.object({
     .trim()
     .min(1, 'Введите сумму')
     .refine((val) => parsePositiveAmount(val) !== null, { message: 'Должно быть числом больше 0' }),
-  email: z.string().email("Неверный формат email"),
-  walletAddress: z.string().min(1, "Необходимо указать адрес кошелька"),
+  email: z.string().email('Неверный формат email'),
+  walletAddress: z.string().min(1, 'Необходимо указать адрес кошелька'),
 });
 
 type ExchangeFormData = z.infer<typeof exchangeFormSchema>;
 
-const currencies = {
-  RUB: {
-    name: "Рубли",
-    methods: ["Tinkoff", "Сбербанк", "Альфа-Банк", "ВТБ", "МИР", "СБП"]
-  },
-};
+const paymentMethods = ['Tinkoff', 'Сбербанк', 'Альфа-Банк', 'ВТБ', 'МИР', 'СБП'];
 
 const cryptoOptions = [
   { value: 'USDT-TRC20', ticker: 'USDT', label: 'Tether USDT' },
@@ -92,22 +73,35 @@ function ChevronDownIcon({ className }: { className?: string }) {
 }
 
 function CryptoIcon({ ticker }: { ticker: string }) {
-  const style =
-    ticker === 'USDT'
-      ? { background: 'linear-gradient(180deg, #22c55e 0%, #16a34a 100%)' }
-      : ticker === 'BTC'
-        ? { background: 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)' }
-        : { background: 'linear-gradient(180deg, #818cf8 0%, #4f46e5 100%)' };
-
-  const text = ticker === 'USDT' ? 'T' : ticker === 'BTC' ? '₿' : 'Ξ';
-
+  if (ticker === 'USDT') {
+    return (
+      <span
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base font-bold text-white shadow"
+        style={{ background: 'linear-gradient(180deg, #26a17b 0%, #1a8c66 100%)' }}
+        aria-hidden="true"
+      >
+        ₮
+      </span>
+    );
+  }
+  if (ticker === 'BTC') {
+    return (
+      <span
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base font-bold text-white shadow"
+        style={{ background: 'linear-gradient(180deg, #f7931a 0%, #e07810 100%)' }}
+        aria-hidden="true"
+      >
+        ₿
+      </span>
+    );
+  }
   return (
     <span
-      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-base font-semibold text-white shadow"
-      style={style}
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base font-bold text-white shadow"
+      style={{ background: 'linear-gradient(180deg, #627eea 0%, #4c6bd6 100%)' }}
       aria-hidden="true"
     >
-      {text}
+      Ξ
     </span>
   );
 }
@@ -117,11 +111,11 @@ export function ExchangeForm() {
   const [estimatedAmount, setEstimatedAmount] = useState('0');
   const [isCalculating, setIsCalculating] = useState(false);
   const [stage, setStage] = useState<'quick' | 'details'>('quick');
-  
+
   const { register, handleSubmit, formState: { errors }, watch, trigger } = useForm<ExchangeFormData>({
     resolver: zodResolver(exchangeFormSchema),
     defaultValues: {
-      fromCurrency: currencies.RUB.methods[0],
+      fromCurrency: paymentMethods[0],
       toCurrency: cryptoOptions[0].value,
       amount: '',
       email: '',
@@ -129,9 +123,10 @@ export function ExchangeForm() {
     },
   });
 
+  const [ratesLoaded, setRatesLoaded] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [captchaQuestion, setCaptchaQuestion] = useState<string | null>(null);
-  const [captchaAnswer, setCaptchaAnswer] = useState<string>('');
+  const [captchaImage, setCaptchaImage] = useState<string | null>(null);
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
 
   const amount = watch('amount');
   const fromCurrency = watch('fromCurrency');
@@ -141,150 +136,50 @@ export function ExchangeForm() {
   const selectedCrypto = cryptoOptions.find((o) => o.value === toCurrency) ?? cryptoOptions[0];
   const cryptoTicker = selectedCrypto.ticker;
 
-  const onSubmit = async (data: ExchangeFormData) => {
-    try {
-      const normalizedAmount = normalizeAmountInput(data.amount).replace(/[^\d.]/g, '');
-      const estimate = await calculateEstimate(normalizedAmount, data.toCurrency);
-      if (!estimate) {
-        throw new Error('Не удалось рассчитать сумму обмена');
-      }
-
-      // Ensure captcha token exists; if not, try to fetch a new one
-      if (!captchaToken) {
-        const cRes = await fetch('/api/captcha');
-        const cData = await cRes.json();
-        setCaptchaToken(cData.token);
-        setCaptchaQuestion(cData.question);
-        alert('Пожалуйста, введите ответ на капчу и повторите отправку.');
-        return;
-      }
-
-      // Ensure user entered a captcha answer
-      if (!captchaAnswer || !String(captchaAnswer).trim()) {
-        alert('Пожалуйста, введите ответ на капчу.');
-        // try to focus the captcha input
-        const el = document.querySelector('input[placeholder="Ответ"]') as HTMLInputElement | null;
-        if (el) el.focus();
-        return;
-      }
-
-      const response = await fetch('/api/exchange', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...data,
-          amount: normalizedAmount,
-          estimatedAmount: estimate.amount,
-          exchangeRate: estimate.rate,
-          captchaToken,
-          captchaAnswer: String(captchaAnswer).trim()
-        }),
-      });
-      
-      const result = await response.json();
-      
-      if (!response.ok) {
-          // If server indicates captcha is wrong, automatically refresh it and ask user to retry
-          if (result && typeof result.message === 'string' && /капч/i.test(result.message)) {
-            try {
-              const cRes = await fetch('/api/captcha');
-              if (cRes.ok) {
-                const cData = await cRes.json();
-                setCaptchaToken(cData.token);
-                setCaptchaQuestion(cData.question);
-                setCaptchaAnswer('');
-              }
-            } catch {
-              // ignore fetch errors for captcha refresh
-            }
-            alert(result.message + '. Капча обновлена — введите новый ответ и отправьте форму ещё раз.');
-            return;
-          }
-
-          throw new Error(result.message || '\u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0440\u0438 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u0438 \u0437\u0430\u044f\u0432\u043a\u0438');
-      }
-
-      // Сохраняем заказ в localStorage как резервную копию на случай перезапуска сервера
-      try {
-        const cryptoKey = (data.toCurrency || '').split('-')[0];
-        const serverOrder = result.order;
-        if (serverOrder) {
-          localStorage.setItem(`order:${serverOrder.id}`, JSON.stringify(serverOrder));
-        } else {
-          const backupOrder = {
-            id: result.orderId as string,
-            status: 'Принята, ожидает оплаты клиентом',
-            fromAmount: normalizedAmount,
-            fromCurrency: data.fromCurrency,
-            toAmount: estimate.amount,
-            toCurrency: cryptoKey + (data.toCurrency.includes('-') ? ` ${data.toCurrency.split('-')[1]}` : ''),
-            toAccount: data.walletAddress,
-            paymentDetails: '2204 1201 3018 1643',
-            createdAt: new Date().toLocaleDateString('ru-RU'),
-            lastStatusUpdate: new Date().toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-          };
-          localStorage.setItem(`order:${result.orderId}`, JSON.stringify(backupOrder));
-        }
-      } catch {
-        // ignore localStorage errors
-      }
-
-      // Перенаправляем на страницу заявки
-      window.location.href = `/order/${result.orderId}`;
-    } catch (error) {
-      console.error('Ошибка:', error);
-      alert(error instanceof Error ? error.message : 'Произошла ошибка при создании заявки. Пожалуйста, попробуйте позже.');
-    }
-  };
-
   const calculateEstimate = useCallback(async (amountOverride?: string, toCurrencyOverride?: string) => {
     const rawAmount = amountOverride ?? amount;
     const rawToCurrency = toCurrencyOverride ?? toCurrency;
-
-    if (!rawAmount || !rawToCurrency) {
-      return null;
-    }
-
+    if (!rawAmount || !rawToCurrency) return null;
     try {
-      // Получаем актуальные курсы из API
       const response = await fetch('/api/rates');
+      if (!response.ok) return null;
       const rates = await response.json();
-      
-      // Получаем курс для выбранной криптовалюты
+      if (!rates || typeof rates !== 'object' || rates.error) return null;
       const cryptoKey = rawToCurrency.split('-')[0];
       const cryptoRate = rates[cryptoKey];
-      
-      if (!cryptoRate) {
-        return null;
-      }
-
-      // Направление: рубли -> криптовалюта
+      if (!cryptoRate || !cryptoRate.rub || cryptoRate.rub <= 0) return null;
       const rateRubPerUnit = new Decimal(cryptoRate.rub);
       const amountDecimal = parsePositiveAmount(rawAmount);
       if (!amountDecimal) return null;
-      const estimatedAmountDecimal = amountDecimal.dividedBy(rateRubPerUnit);
-
+      setRatesLoaded(true);
       return {
-        amount: estimatedAmountDecimal.toFixed(8),
-        rate: rateRubPerUnit.toString()
+        amount: amountDecimal.dividedBy(rateRubPerUnit).toFixed(8),
+        rate: rateRubPerUnit.toString(),
       };
-    } catch (error) {
-      console.error('Ошибка при расчете:', error);
+    } catch {
       return null;
     }
   }, [amount, toCurrency]);
 
-  // Обновляем расчет при изменении входных данных
+  // Load rates on mount (without amount) to show rate info immediately
+  useEffect(() => {
+    fetch('/api/rates')
+      .then(r => r.ok ? r.json() : null)
+      .then(rates => {
+        if (!rates || rates.error) return;
+        const cryptoKey = toCurrency.split('-')[0];
+        const r = rates[cryptoKey] || rates['BTC'];
+        if (r?.rub > 0) { setRatesLoaded(true); setCurrentRate(r.rub.toString()); }
+      })
+      .catch(() => {});
+  }, [toCurrency]);
+
   useEffect(() => {
     const updateEstimate = async () => {
       if (!amount || !fromCurrency || !toCurrency || !parsePositiveAmount(amount)) {
         setEstimatedAmount('0');
-        setCurrentRate('0');
         return;
       }
-
       setIsCalculating(true);
       try {
         const estimate = await calculateEstimate();
@@ -292,13 +187,10 @@ export function ExchangeForm() {
           setEstimatedAmount(estimate.amount);
           setCurrentRate(estimate.rate);
         }
-      } catch (error) {
-        console.error('Ошибка при расчете:', error);
       } finally {
         setIsCalculating(false);
       }
     };
-
     updateEstimate();
   }, [amount, fromCurrency, toCurrency, calculateEstimate]);
 
@@ -306,213 +198,308 @@ export function ExchangeForm() {
     const res = await fetch('/api/captcha');
     const json = await res.json();
     setCaptchaToken(json.token);
-    setCaptchaQuestion(json.question);
+    setCaptchaImage(json.imageData);
     setCaptchaAnswer('');
   }, []);
 
   useEffect(() => {
     if (stage !== 'details') return;
-    if (captchaToken && captchaQuestion) return;
+    if (captchaToken && captchaImage) return;
+    fetchCaptcha().catch(() => {});
+  }, [stage, captchaToken, captchaImage, fetchCaptcha]);
 
-    fetchCaptcha().catch(() => {
-      // ignore fetch errors here; onSubmit has fallback
-    });
-  }, [stage, captchaToken, captchaQuestion, fetchCaptcha]);
+  const onSubmit = async (data: ExchangeFormData) => {
+    try {
+      const normalizedAmount = normalizeAmountInput(data.amount).replace(/[^\d.]/g, '');
+      const estimate = await calculateEstimate(normalizedAmount, data.toCurrency);
+      if (!estimate) throw new Error('Не удалось рассчитать сумму обмена');
+
+      if (!captchaToken) {
+        const cRes = await fetch('/api/captcha');
+        const cData = await cRes.json();
+        setCaptchaToken(cData.token);
+        setCaptchaImage(cData.imageData);
+        alert('Пожалуйста, введите ответ на капчу и повторите отправку.');
+        return;
+      }
+      if (!captchaAnswer.trim()) {
+        alert('Пожалуйста, введите ответ на капчу.');
+        (document.querySelector('input[placeholder="Ответ"]') as HTMLInputElement | null)?.focus();
+        return;
+      }
+
+      const response = await fetch('/api/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          amount: normalizedAmount,
+          estimatedAmount: estimate.amount,
+          exchangeRate: estimate.rate,
+          captchaToken,
+          captchaAnswer: captchaAnswer.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result && typeof result.message === 'string' && /капч/i.test(result.message)) {
+          try {
+            const cRes = await fetch('/api/captcha');
+            if (cRes.ok) {
+              const cData = await cRes.json();
+              setCaptchaToken(cData.token);
+              setCaptchaImage(cData.imageData);
+              setCaptchaAnswer('');
+            }
+          } catch { /* ignore */ }
+          alert(result.message + '. Капча обновлена — введите новый ответ.');
+          return;
+        }
+        throw new Error(result.message || 'Ошибка при создании заявки');
+      }
+
+      try {
+        const serverOrder = result.order;
+        if (serverOrder) {
+          localStorage.setItem(`order:${serverOrder.id}`, JSON.stringify(serverOrder));
+        }
+      } catch { /* ignore */ }
+
+      window.location.href = `/order/${result.orderId}`;
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Произошла ошибка. Попробуйте позже.');
+    }
+  };
+
+  const goToDetails = async () => {
+    const ok = await trigger(['fromCurrency', 'toCurrency', 'amount']);
+    if (ok) setStage('details');
+  };
 
   return (
-    <div className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-4 shadow-2xl backdrop-blur">
+    <div
+      className="rounded-2xl shadow-2xl overflow-hidden"
+      style={{
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%)',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}
+    >
       <form
-        className="space-y-4"
+        className="p-5 space-y-3"
         onSubmit={(e) => {
-          if (stage !== 'details') {
-            e.preventDefault();
-            void (async () => {
-              const ok = await trigger(['fromCurrency', 'toCurrency', 'amount']);
-              if (ok) setStage('details');
-            })();
-            return;
-          }
+          if (stage !== 'details') { e.preventDefault(); void goToDetails(); return; }
           void handleSubmit(onSubmit)(e);
         }}
       >
-        <div className="space-y-3">
-          <div>
-            <div className="mb-2 text-xs text-[var(--sb-muted)]">Отдаёте</div>
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <span
-                  className="h-7 w-10 rounded-sm border border-white/10"
-                  style={{
-                    background: 'linear-gradient(to bottom, #ffffff 0 33%, #2563eb 33% 66%, #ef4444 66% 100%)',
-                  }}
-                  aria-hidden="true"
-                />
-
-                <div className="relative min-w-0 flex-1">
-                  <select
-                    {...register('fromCurrency')}
-                    className="w-full appearance-none bg-transparent pr-10 text-base font-semibold text-[var(--foreground)] outline-none"
-                  >
-                    {currencies.RUB.methods.map((method) => (
-                      <option key={method} value={method}>
-                        {method}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--sb-muted-2)]" />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-lg border border-[var(--sb-border)] bg-black/20 px-3 py-2">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  {...register('amount')}
-                  className="w-28 bg-transparent text-right text-lg font-semibold text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
-                  placeholder="50 000"
-                />
-                <span className="text-sm font-semibold text-[var(--sb-muted)]">₽</span>
-              </div>
-            </div>
-            {errors.fromCurrency && <p className="mt-1 text-xs text-red-400">{errors.fromCurrency.message}</p>}
-            {errors.amount && <p className="mt-1 text-xs text-red-400">{errors.amount.message}</p>}
+        {/* FROM row */}
+        <div
+          className="flex items-center gap-3 rounded-xl px-3 py-3"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          {/* Russian flag */}
+          <span
+            className="h-7 w-10 shrink-0 rounded-sm overflow-hidden"
+            style={{ border: '1px solid rgba(255,255,255,0.15)' }}
+            aria-hidden="true"
+          >
+            <div style={{ height: '33.33%', background: '#fff' }} />
+            <div style={{ height: '33.33%', background: '#003DA5' }} />
+            <div style={{ height: '33.33%', background: '#CC0000' }} />
+          </span>
+          <div className="relative flex-1 min-w-0">
+            <select
+              {...register('fromCurrency')}
+              className="w-full appearance-none bg-transparent pr-6 text-base font-semibold text-[var(--foreground)] outline-none cursor-pointer"
+            >
+              {paymentMethods.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <ChevronDownIcon className="pointer-events-none absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--sb-muted-2)]" />
           </div>
+          {/* Amount input */}
+          <div
+            className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 cursor-text"
+            style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <input
+              type="text"
+              inputMode="decimal"
+              {...register('amount')}
+              className="w-24 bg-transparent text-right text-lg font-bold text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
+              placeholder="50 000"
+            />
+            <span className="text-sm font-semibold" style={{ color: 'rgba(232,237,246,0.6)' }}>₽</span>
+          </div>
+        </div>
+        {errors.amount && <p className="text-xs text-red-400 -mt-1 px-1">{errors.amount.message}</p>}
 
-          <div className="h-px bg-white/10" />
+        {/* Divider */}
+        <div className="flex items-center gap-2 px-1">
+          <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.08)' }} />
+          <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'rgba(232,237,246,0.3)' }}>
+            <path d="M5 11V3m0 0L2 6m3-3l3 3M11 5v8m0 0l3-3m-3 3l-3-3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.08)' }} />
+        </div>
 
-          <div>
-            <div className="mb-2 text-xs text-[var(--sb-muted)]">Получаете</div>
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <CryptoIcon ticker={cryptoTicker} />
-
-                <div className="relative min-w-0 flex-1">
-                  <select
-                    {...register('toCurrency')}
-                    className="w-full appearance-none bg-transparent pr-10 text-base font-semibold text-[var(--foreground)] outline-none"
-                  >
-                    {cryptoOptions.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDownIcon className="pointer-events-none absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--sb-muted-2)]" />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-lg border border-[var(--sb-border)] bg-black/20 px-3 py-2">
-                <span className="text-sm text-[var(--sb-muted)]">≈</span>
-                <span className="text-lg font-semibold text-[var(--foreground)]">
-                  {isCalculating ? '…' : formatNumber(estimatedAmount, { maximumFractionDigits: 8 })}
-                </span>
-                <span className="text-sm font-semibold text-[var(--sb-muted)]">{cryptoTicker}</span>
-              </div>
-            </div>
-            {errors.toCurrency && <p className="mt-1 text-xs text-red-400">{errors.toCurrency.message}</p>}
+        {/* TO row */}
+        <div
+          className="flex items-center gap-3 rounded-xl px-3 py-3"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <CryptoIcon ticker={cryptoTicker} />
+          <div className="relative flex-1 min-w-0">
+            <select
+              {...register('toCurrency')}
+              className="w-full appearance-none bg-transparent pr-6 text-base font-semibold text-[var(--foreground)] outline-none cursor-pointer"
+            >
+              {cryptoOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <ChevronDownIcon className="pointer-events-none absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--sb-muted-2)]" />
+          </div>
+          {/* Estimated output */}
+          <div
+            className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2"
+            style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            <span className="text-sm" style={{ color: 'rgba(232,237,246,0.5)' }}>≈</span>
+            <span className="text-lg font-bold text-[var(--foreground)]">
+              {isCalculating ? '…' : formatNumber(estimatedAmount, { maximumFractionDigits: 8 })}
+            </span>
+            <span className="text-sm font-semibold" style={{ color: 'rgba(232,237,246,0.6)' }}>{cryptoTicker}</span>
           </div>
         </div>
 
-        <div className="h-px bg-white/10" />
-
-        <div className="space-y-1 text-sm text-[var(--sb-muted)]">
+        {/* Rate info */}
+        <div className="space-y-1 px-1 text-sm" style={{ color: 'rgba(232,237,246,0.6)' }}>
           <div>
             Курс:{' '}
             <span className="font-semibold text-[var(--foreground)]">
-              1 {cryptoTicker} = {isCalculating ? '…' : formatNumber(currentRate, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
+              {!ratesLoaded
+                ? <span style={{ color: 'rgba(232,237,246,0.4)' }}>загружается…</span>
+                : <>1 {cryptoTicker} = {isCalculating ? '…' : formatNumber(currentRate, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽</>
+              }
             </span>
           </div>
           <div>
             Получите на:{' '}
             <span className="font-semibold text-[var(--foreground)]">
-              {walletAddress?.trim() ? walletAddress : `Ваш ${cryptoTicker} кошелёк`}
+              {walletAddress?.trim() || `Ваш ${cryptoTicker} кошелёк`}
             </span>
           </div>
         </div>
 
+        {/* Details stage */}
         {stage === 'details' && (
-          <div className="space-y-3 pt-2">
+          <div className="space-y-3 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
             <div>
-              <label className="mb-1 block text-xs text-[var(--sb-muted)]">Email</label>
+              <label className="mb-1 block text-xs" style={{ color: 'rgba(232,237,246,0.6)' }}>Email для уведомлений</label>
               <input
                 type="email"
                 {...register('email')}
-                className="block w-full rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)] focus:border-[var(--sb-border-strong)]"
+                className="block w-full rounded-xl px-3 py-3 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
                 placeholder="your@email.com"
               />
               {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email.message}</p>}
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-[var(--sb-muted)]">Адрес кошелька</label>
+              <label className="mb-1 block text-xs" style={{ color: 'rgba(232,237,246,0.6)' }}>Адрес {cryptoTicker} кошелька</label>
               <input
                 type="text"
                 {...register('walletAddress')}
-                className="block w-full rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)] focus:border-[var(--sb-border-strong)]"
+                className="block w-full rounded-xl px-3 py-3 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
                 placeholder="Введите адрес кошелька"
               />
               {errors.walletAddress && <p className="mt-1 text-xs text-red-400">{errors.walletAddress.message}</p>}
             </div>
 
-            <div className="rounded-xl border border-[var(--sb-border)] bg-[var(--sb-surface-2)] px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs text-[var(--sb-muted)]">Капча</div>
-                  <div className="mt-1 text-sm font-medium text-[var(--foreground)]">
-                    {captchaQuestion ? captchaQuestion : 'Загрузка…'}
-                  </div>
-                </div>
+            <div
+              className="rounded-xl px-3 py-3"
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs" style={{ color: 'rgba(232,237,246,0.6)' }}>Введите ответ на капчу</div>
                 <button
                   type="button"
-                  onClick={() => fetchCaptcha().catch(() => alert('Не удалось обновить капчу. Попробуйте позже.'))}
-                  className="shrink-0 rounded-lg border border-[var(--sb-border)] bg-black/20 px-3 py-2 text-xs text-[var(--sb-muted)] hover:text-[var(--foreground)]"
+                  onClick={() => fetchCaptcha().catch(() => alert('Не удалось обновить капчу.'))}
+                  className="shrink-0 rounded-lg px-2 py-1 text-xs transition-opacity hover:opacity-80"
+                  style={{
+                    background: 'rgba(0,0,0,0.2)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    color: 'rgba(232,237,246,0.55)',
+                  }}
+                  title="Обновить капчу"
                 >
-                  Обновить
+                  ↻ Обновить
                 </button>
               </div>
+              {captchaImage ? (
+                <img
+                  src={captchaImage}
+                  alt="Капча"
+                  className="w-full rounded-lg select-none"
+                  style={{ imageRendering: 'crisp-edges', userSelect: 'none', pointerEvents: 'none' }}
+                  draggable={false}
+                />
+              ) : (
+                <div
+                  className="flex items-center justify-center rounded-lg"
+                  style={{ height: 64, background: 'rgba(0,0,0,0.2)', color: 'rgba(232,237,246,0.4)', fontSize: 13 }}
+                >
+                  Загрузка…
+                </div>
+              )}
               <input
                 value={captchaAnswer}
                 onChange={(e) => setCaptchaAnswer(e.target.value)}
-                className="mt-3 block w-full rounded-lg border border-[var(--sb-border)] bg-black/20 px-3 py-2 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)] focus:border-[var(--sb-border-strong)]"
+                className="mt-3 block w-full rounded-lg px-3 py-2 text-[var(--foreground)] outline-none placeholder:text-[var(--sb-muted-2)]"
+                style={{
+                  background: 'rgba(0,0,0,0.2)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                }}
                 placeholder="Ответ"
+                inputMode="numeric"
               />
             </div>
 
             <button
               type="button"
               onClick={() => setStage('quick')}
-              className="text-left text-sm text-[var(--sb-muted)] hover:text-[var(--foreground)] hover:underline"
+              className="text-sm hover:underline"
+              style={{ color: 'rgba(232,237,246,0.5)' }}
             >
               ← Назад
             </button>
           </div>
         )}
 
+        {/* Main button */}
         <button
           type={stage === 'details' ? 'submit' : 'button'}
-          onClick={
-            stage === 'details'
-              ? undefined
-              : () => {
-                  void (async () => {
-                    const ok = await trigger(['fromCurrency', 'toCurrency', 'amount']);
-                    if (ok) setStage('details');
-                  })();
-                }
-          }
-          className="w-full rounded-xl px-4 py-4 text-center text-lg font-semibold text-white shadow-2xl"
-          style={{ background: 'linear-gradient(180deg, var(--accent) 0%, var(--accent-2) 100%)' }}
+          onClick={stage === 'details' ? undefined : () => void goToDetails()}
+          className="w-full rounded-xl px-4 py-4 text-center text-lg font-bold text-white shadow-lg transition-opacity hover:opacity-90 active:opacity-80"
+          style={{ background: 'linear-gradient(180deg, #3ecb6f 0%, #1a9e4a 100%)' }}
         >
           Начать обмен
         </button>
 
-        <p className="text-xs text-[var(--sb-muted-2)]">
-          Курс фиксируется на момент создания заявки и может незначительно измениться.
+        <p className="text-center text-xs" style={{ color: 'rgba(232,237,246,0.35)' }}>
+          Курс фиксируется на момент создания заявки
         </p>
       </form>
     </div>
-  );
-}
-
   );
 }
