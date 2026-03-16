@@ -123,6 +123,7 @@ export function ExchangeForm() {
     },
   });
 
+  const [ratesLoaded, setRatesLoaded] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaQuestion, setCaptchaQuestion] = useState<string | null>(null);
   const [captchaAnswer, setCaptchaAnswer] = useState('');
@@ -141,13 +142,16 @@ export function ExchangeForm() {
     if (!rawAmount || !rawToCurrency) return null;
     try {
       const response = await fetch('/api/rates');
+      if (!response.ok) return null;
       const rates = await response.json();
+      if (!rates || typeof rates !== 'object' || rates.error) return null;
       const cryptoKey = rawToCurrency.split('-')[0];
       const cryptoRate = rates[cryptoKey];
-      if (!cryptoRate) return null;
+      if (!cryptoRate || !cryptoRate.rub || cryptoRate.rub <= 0) return null;
       const rateRubPerUnit = new Decimal(cryptoRate.rub);
       const amountDecimal = parsePositiveAmount(rawAmount);
       if (!amountDecimal) return null;
+      setRatesLoaded(true);
       return {
         amount: amountDecimal.dividedBy(rateRubPerUnit).toFixed(8),
         rate: rateRubPerUnit.toString(),
@@ -157,11 +161,23 @@ export function ExchangeForm() {
     }
   }, [amount, toCurrency]);
 
+  // Load rates on mount (without amount) to show rate info immediately
+  useEffect(() => {
+    fetch('/api/rates')
+      .then(r => r.ok ? r.json() : null)
+      .then(rates => {
+        if (!rates || rates.error) return;
+        const r = rates['USDT'] || rates['BTC'];
+        if (r?.rub > 0) { setRatesLoaded(true); setCurrentRate(r.rub.toString()); }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const updateEstimate = async () => {
       if (!amount || !fromCurrency || !toCurrency || !parsePositiveAmount(amount)) {
         setEstimatedAmount('0');
-        setCurrentRate('0');
         return;
       }
       setIsCalculating(true);
@@ -360,7 +376,10 @@ export function ExchangeForm() {
           <div>
             Курс:{' '}
             <span className="font-semibold text-[var(--foreground)]">
-              1 {cryptoTicker} = {isCalculating ? '…' : formatNumber(currentRate, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
+              {!ratesLoaded
+                ? <span style={{ color: 'rgba(232,237,246,0.4)' }}>загружается…</span>
+                : <>1 {cryptoTicker} = {isCalculating ? '…' : formatNumber(currentRate, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽</>
+              }
             </span>
           </div>
           <div>
