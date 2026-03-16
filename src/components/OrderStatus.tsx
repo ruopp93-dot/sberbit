@@ -40,7 +40,7 @@ const BANK_BUTTONS = [
     name: 'Сбербанк',
     bg: '#1DA462',
     fg: '#ffffff',
-    scheme: 'sberbankonline://payment?phone=',
+    scheme: 'sberbankonline://p2ptransfer?phone=',
     intentPackage: 'ru.sberbankmobile',
     icon: (
       <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
@@ -81,14 +81,20 @@ const BANK_BUTTONS = [
 ];
 
 function getBankDeepLink(scheme: string, intentPackage: string, rawPhone: string): string {
+  // Normalize phone to +7XXXXXXXXXX format
+  let digits = rawPhone.replace(/\D/g, '');
+  if (digits.startsWith('8') && digits.length === 11) digits = '7' + digits.slice(1);
+  if (digits.length === 10) digits = '7' + digits;
+  const formattedPhone = encodeURIComponent('+' + digits);
+
   const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
   if (isAndroid) {
     // Chrome on Android requires intent:// format to open native apps
     const schemePart = scheme.split('://')[0];
     const pathAndQuery = scheme.split('://')[1] ?? '';
-    return `intent://${pathAndQuery}${rawPhone}#Intent;scheme=${schemePart};package=${intentPackage};end`;
+    return `intent://${pathAndQuery}${formattedPhone}#Intent;scheme=${schemePart};package=${intentPackage};end`;
   }
-  return `${scheme}${rawPhone}`;
+  return `${scheme}${formattedPhone}`;
 }
 
 function CopyButton({ text }: { text: string }) {
