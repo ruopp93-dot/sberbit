@@ -16,7 +16,7 @@
     "coingecko-api-v3": "^0.0.31",
     "decimal.js": "^10.6.0",
     "grammy": "^1.38.1",
-    "next": "15.5.2",
+    "next": "15.5.12",
     "node-telegram-bot-api": "^0.66.0",
     "nodemailer": "^7.0.6",
     "react": "19.1.0",

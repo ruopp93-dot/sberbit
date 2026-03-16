@@ -12,6 +12,9 @@ export interface ExchangeOrder {
   // необязательное поле, если пользователь не вводил реквизиты отправителя
   fromAccount?: string;
   email?: string;
+  paymentPhone?: string;
+  paymentRecipient?: string;
+  paymentBank?: string;
 }
 
 // keep orders Map on globalThis so it survives HMR in dev

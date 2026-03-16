@@ -34,7 +34,7 @@ body {
   background-image: var(--sb-page-gradient);
   background-attachment: fixed;
   color: var(--foreground);
-  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  font-family: Inter, system-ui, -apple-system, Arial, Helvetica, sans-serif;
 }
 
 @media (prefers-color-scheme: light) {
