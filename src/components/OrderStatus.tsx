@@ -28,6 +28,7 @@ const BANK_BUTTONS = [
     bg: '#FFDD00',
     fg: '#000000',
     scheme: 'tinkoff://transfer?phone=',
+    intentPackage: 'com.idamob.tinkoff.android',
     icon: (
       <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
         <rect width="36" height="36" rx="18" fill="rgba(0,0,0,0.2)" />
@@ -40,6 +41,7 @@ const BANK_BUTTONS = [
     bg: '#1DA462',
     fg: '#ffffff',
     scheme: 'sberbankonline://payment?phone=',
+    intentPackage: 'ru.sberbankmobile',
     icon: (
       <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
         <rect width="36" height="36" rx="18" fill="rgba(0,0,0,0.15)" />
@@ -53,6 +55,7 @@ const BANK_BUTTONS = [
     bg: '#009FDF',
     fg: '#ffffff',
     scheme: 'vtbmobile://transfer?phone=',
+    intentPackage: 'ru.vtb24.mobilebanking.android',
     icon: (
       <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
         <rect width="36" height="36" rx="18" fill="rgba(0,0,0,0.15)" />
@@ -67,6 +70,7 @@ const BANK_BUTTONS = [
     bg: '#EF3124',
     fg: '#ffffff',
     scheme: 'alfabank://payment?phone=',
+    intentPackage: 'ru.alfabank.mobile.android',
     icon: (
       <svg viewBox="0 0 36 36" className="h-9 w-9 shrink-0" fill="none" aria-hidden="true">
         <rect width="36" height="36" rx="18" fill="rgba(0,0,0,0.15)" />
@@ -74,7 +78,18 @@ const BANK_BUTTONS = [
       </svg>
     ),
   },
-] as const;
+];
+
+function getBankDeepLink(scheme: string, intentPackage: string, rawPhone: string): string {
+  const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    // Chrome on Android requires intent:// format to open native apps
+    const schemePart = scheme.split('://')[0];
+    const pathAndQuery = scheme.split('://')[1] ?? '';
+    return `intent://${pathAndQuery}${rawPhone}#Intent;scheme=${schemePart};package=${intentPackage};end`;
+  }
+  return `${scheme}${rawPhone}`;
+}
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -310,7 +325,7 @@ export function OrderStatus({ orderId }: { orderId: string }) {
               {BANK_BUTTONS.map((btn) => (
                 <a
                   key={btn.name}
-                  href={`${btn.scheme}${rawPhone}`}
+                  href={getBankDeepLink(btn.scheme, btn.intentPackage, rawPhone)}
                   className="flex items-center justify-between rounded-2xl px-5 py-4 font-semibold transition-opacity hover:opacity-90 active:opacity-80"
                   style={{ background: btn.bg, color: btn.fg }}
                 >

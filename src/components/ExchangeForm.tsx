@@ -167,12 +167,12 @@ export function ExchangeForm() {
       .then(r => r.ok ? r.json() : null)
       .then(rates => {
         if (!rates || rates.error) return;
-        const r = rates['USDT'] || rates['BTC'];
+        const cryptoKey = toCurrency.split('-')[0];
+        const r = rates[cryptoKey] || rates['BTC'];
         if (r?.rub > 0) { setRatesLoaded(true); setCurrentRate(r.rub.toString()); }
       })
       .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toCurrency]);
 
   useEffect(() => {
     const updateEstimate = async () => {
