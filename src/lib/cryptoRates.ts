@@ -18,10 +18,10 @@ const rates: Rates = {
 
 // Optional markup configuration
 const MARKUP_PERCENTAGE: Record<string, number> = {
-  BTC: 2,
-  ETH: 2.5,
-  USDT: 1.5,
-  default: 2,
+  BTC: 6,
+  ETH: 5,
+  USDT: 7,
+  default: 5,
 };
 
 export function getRates(): Rates {
