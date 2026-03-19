@@ -366,30 +366,36 @@ export async function POST(request: NextRequest) {
           }
         }
 
-      // Public commands (available to any user)
-      if (text === '/start' || text === 'menu' || text === '/menu') {
-        await bot.api.sendMessage(chatId, 'Главное меню', { reply_markup: buildMainMenu() as any });
-      } else if (text === '/rates' || /^\/rates/i.test(text)) {
+      // Normalize command (strip @BotName suffix that Telegram sometimes appends in groups)
+      const cmd = text.replace(/@\w+$/, '');
+
+      // Public commands
+      if (cmd === '/start' || cmd === 'menu' || cmd === '/menu') {
+        const greeting = isAdmin(chatId) ? 'Панель администратора SberBits' : 'Добро пожаловать!';
+        await bot.api.sendMessage(chatId, greeting, { reply_markup: buildMainMenu() as any });
+      } else if (/^\/rates?$/i.test(cmd)) {
         await handleShowRates(chatId);
+      } else if (/^\/help$/i.test(cmd)) {
+        const helpText = [
+          '📚 Доступные команды:',
+          '/orders — активные заявки',
+          '/paid — оплаченные заявки',
+          '/canceled — отменённые заявки',
+          '/all — все заявки',
+          '/rates — текущие курсы',
+          '#ID — найти заявку по ID',
+        ].join('\n');
+        await bot.api.sendMessage(chatId, helpText, { reply_markup: buildMainMenu() as any });
       } else if (/^#?\d+$/.test(text)) {
         const id = text.replace('#', '');
-        await handleShowOrder(chatId, id);
-      }
-      // Admin-only commands: lists and wide queries
-      else if (/^\/(orders|list|paid|canceled|all)/i.test(text)) {
-        if (!isAdmin(chatId)) {
-          await bot.api.sendMessage(chatId, 'Доступно только администратору.');
-          return NextResponse.json({ ok: true });
-        }
-        if (/^\/(paid)/i.test(text)) {
-          await handleShowList(chatId, 'paid', 1);
-        } else if (/^\/(canceled|cancelled)/i.test(text)) {
-          await handleShowList(chatId, 'canceled', 1);
-        } else if (/^\/(all)/i.test(text)) {
-          await handleShowList(chatId, 'all', 1);
-        } else {
-          await handleShowList(chatId, 'active', 1);
-        }
+        if (isAdmin(chatId)) await handleShowOrder(chatId, id);
+        else await bot.api.sendMessage(chatId, 'Просмотр заявок доступен только администратору.');
+      } else if (/^\/(orders|list|paid|canceled|cancelled|all)/i.test(cmd)) {
+        if (!isAdmin(chatId)) { await bot.api.sendMessage(chatId, 'Доступно только администратору.'); return NextResponse.json({ ok: true }); }
+        if (/paid/i.test(cmd)) await handleShowList(chatId, 'paid', 1);
+        else if (/canceled|cancelled/i.test(cmd)) await handleShowList(chatId, 'canceled', 1);
+        else if (/all/i.test(cmd)) await handleShowList(chatId, 'all', 1);
+        else await handleShowList(chatId, 'active', 1);
       } else {
         await bot.api.sendMessage(chatId, 'Команда не распознана. Используйте меню ниже.', { reply_markup: buildMainMenu() as any });
       }
