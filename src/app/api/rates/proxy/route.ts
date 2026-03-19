@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getRates, updateRate } from '@/lib/cryptoRates';
+import { getRates, updateRate, loadRatesFromRedis } from '@/lib/cryptoRates';
+
+const _g2: any = globalThis as any;
+const REDIS_LOADED2 = '__SB_RATES_REDIS_LOADED2__';
+if (!_g2[REDIS_LOADED2]) _g2[REDIS_LOADED2] = false;
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +52,12 @@ async function fetchFromBinance(): Promise<boolean> {
 
 export async function GET() {
   const now = Date.now();
+  // Load from Redis on first cold start
+  if (!_g2[REDIS_LOADED2]) {
+    _g2[REDIS_LOADED2] = true;
+    await loadRatesFromRedis();
+  }
+
   if (now - _g[FETCH_KEY] > 60000) {
     const ok = await fetchFromCoinGecko();
     if (!ok) await fetchFromBinance();

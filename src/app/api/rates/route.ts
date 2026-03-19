@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getRates, updateRate } from '@/lib/cryptoRates';
+import { getRates, updateRate, loadRatesFromRedis } from '@/lib/cryptoRates';
 
 export const dynamic = 'force-dynamic';
 
 const _g: any = globalThis as any;
 const FETCH_KEY = '__SB_RATES_LAST_FETCH__';
+const REDIS_LOAD_KEY = '__SB_RATES_REDIS_LOADED__';
 if (!_g[FETCH_KEY]) _g[FETCH_KEY] = 0;
+if (!_g[REDIS_LOAD_KEY]) _g[REDIS_LOAD_KEY] = false;
 
 interface BinancePrice { price: string }
 interface CBRData { Valute?: { USD?: { Value?: number } } }
@@ -55,7 +57,23 @@ async function fetchFromCoinGecko(): Promise<boolean> {
 
 export async function GET() {
   const now = Date.now();
-  if (now - _g[FETCH_KEY] > 60000) {
+
+  // On first cold start, load persisted rates from Redis (if configured)
+  if (!_g[REDIS_LOAD_KEY]) {
+    _g[REDIS_LOAD_KEY] = true;
+    await loadRatesFromRedis();
+  }
+
+  // Refresh from market every 60 seconds (only if Redis is NOT configured —
+  // if Redis is configured, admin manual rates take priority)
+  const hasRedis = !!(process.env.UPSTASH_REDIS_REST_URL);
+  if (!hasRedis && now - _g[FETCH_KEY] > 60000) {
+    const ok = await fetchFromCoinGecko();
+    if (!ok) await fetchFromBinance();
+    _g[FETCH_KEY] = now;
+  } else if (hasRedis && now - _g[FETCH_KEY] > 300000) {
+    // With Redis: refresh market rates every 5 min but don't overwrite admin changes
+    // (admin changes are saved to Redis and loaded above)
     const ok = await fetchFromCoinGecko();
     if (!ok) await fetchFromBinance();
     _g[FETCH_KEY] = now;
