@@ -366,8 +366,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
-      // Normalize command (strip @BotName suffix that Telegram sometimes appends in groups)
-      const cmd = text.replace(/@\w+$/, '');
+      // Normalize command: lowercase + strip @BotName suffix
+      const cmd = text.toLowerCase().replace(/@\w+$/, '');
 
       // Public commands
       if (cmd === '/start' || cmd === 'menu' || cmd === '/menu') {
