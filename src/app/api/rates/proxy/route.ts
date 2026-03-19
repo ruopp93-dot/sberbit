@@ -7,35 +7,6 @@ const _g: any = globalThis as any;
 const FETCH_KEY = '__SB_RATES_LAST_FETCH__';
 if (!_g[FETCH_KEY]) _g[FETCH_KEY] = 0;
 
-interface BinancePrice { price: string }
-interface CBRData { Valute?: { USD?: { Value?: number } } }
-
-async function fetchFromBinance(): Promise<boolean> {
-  try {
-    const [btcRes, ethRes, cbrRes] = await Promise.all([
-      fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { cache: 'no-store', signal: AbortSignal.timeout(5000) }),
-      fetch('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT', { cache: 'no-store', signal: AbortSignal.timeout(5000) }),
-      fetch('https://www.cbr-xml-daily.ru/daily_json.js', { cache: 'no-store', signal: AbortSignal.timeout(5000) }),
-    ]);
-    if (!btcRes.ok || !ethRes.ok || !cbrRes.ok) return false;
-    const [btcData, ethData, cbrData] = await Promise.all([
-      btcRes.json() as Promise<BinancePrice>,
-      ethRes.json() as Promise<BinancePrice>,
-      cbrRes.json() as Promise<CBRData>,
-    ]);
-    const usdRub = cbrData?.Valute?.USD?.Value;
-    const btcUsdt = parseFloat(btcData?.price);
-    const ethUsdt = parseFloat(ethData?.price);
-    if (!usdRub || !btcUsdt || !ethUsdt) return false;
-    updateRate('BTC', Math.round(btcUsdt * usdRub));
-    updateRate('ETH', Math.round(ethUsdt * usdRub));
-    updateRate('USDT', parseFloat(usdRub.toFixed(2)));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function fetchFromCoinGecko(): Promise<boolean> {
   try {
     const res = await fetch(
@@ -48,6 +19,28 @@ async function fetchFromCoinGecko(): Promise<boolean> {
     if (data?.ethereum?.rub) updateRate('ETH', data.ethereum.rub);
     if (data?.tether?.rub) updateRate('USDT', data.tether.rub);
     return !!(data?.tether?.rub || data?.bitcoin?.rub);
+  } catch {
+    return false;
+  }
+}
+
+async function fetchFromBinance(): Promise<boolean> {
+  try {
+    const [btcRes, ethRes, cbrRes] = await Promise.all([
+      fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { cache: 'no-store', signal: AbortSignal.timeout(5000) }),
+      fetch('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT', { cache: 'no-store', signal: AbortSignal.timeout(5000) }),
+      fetch('https://www.cbr-xml-daily.ru/daily_json.js', { cache: 'no-store', signal: AbortSignal.timeout(5000) }),
+    ]);
+    if (!btcRes.ok || !ethRes.ok || !cbrRes.ok) return false;
+    const [btcData, ethData, cbrData]: any[] = await Promise.all([btcRes.json(), ethRes.json(), cbrRes.json()]);
+    const usdRub = cbrData?.Valute?.USD?.Value;
+    const btcUsdt = parseFloat(btcData?.price);
+    const ethUsdt = parseFloat(ethData?.price);
+    if (!usdRub || !btcUsdt || !ethUsdt) return false;
+    updateRate('BTC', Math.round(btcUsdt * usdRub));
+    updateRate('ETH', Math.round(ethUsdt * usdRub));
+    updateRate('USDT', parseFloat(usdRub.toFixed(2)));
+    return true;
   } catch {
     return false;
   }
@@ -69,7 +62,7 @@ export async function GET() {
     updateRate('USDT', Number(process.env.DEFAULT_USDT_RATE) || 95.45);
   }
 
-  return NextResponse.json(getRates(), {
+  return NextResponse.json({ success: true, rates: getRates() }, {
     headers: { 'Cache-Control': 'no-store, no-cache' },
   });
 }
