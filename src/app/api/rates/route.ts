@@ -57,23 +57,17 @@ async function fetchFromCoinGecko(): Promise<boolean> {
 
 export async function GET() {
   const now = Date.now();
+  const hasRedis = !!(process.env.UPSTASH_REDIS_REST_URL);
 
-  // On first cold start, load persisted rates from Redis (if configured)
+  // On first cold start of this instance, load persisted rates from Redis
   if (!_g[REDIS_LOAD_KEY]) {
     _g[REDIS_LOAD_KEY] = true;
     await loadRatesFromRedis();
   }
 
-  // Refresh from market every 60 seconds (only if Redis is NOT configured —
-  // if Redis is configured, admin manual rates take priority)
-  const hasRedis = !!(process.env.UPSTASH_REDIS_REST_URL);
+  // Auto-fetch from market ONLY when Redis is NOT configured.
+  // When Redis is configured, admin manages rates manually via Telegram bot.
   if (!hasRedis && now - _g[FETCH_KEY] > 60000) {
-    const ok = await fetchFromCoinGecko();
-    if (!ok) await fetchFromBinance();
-    _g[FETCH_KEY] = now;
-  } else if (hasRedis && now - _g[FETCH_KEY] > 300000) {
-    // With Redis: refresh market rates every 5 min but don't overwrite admin changes
-    // (admin changes are saved to Redis and loaded above)
     const ok = await fetchFromCoinGecko();
     if (!ok) await fetchFromBinance();
     _g[FETCH_KEY] = now;

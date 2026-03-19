@@ -58,7 +58,8 @@ export async function GET() {
     await loadRatesFromRedis();
   }
 
-  if (now - _g[FETCH_KEY] > 60000) {
+  const hasRedis = !!(process.env.UPSTASH_REDIS_REST_URL);
+  if (!hasRedis && now - _g[FETCH_KEY] > 60000) {
     const ok = await fetchFromCoinGecko();
     if (!ok) await fetchFromBinance();
     _g[FETCH_KEY] = now;
