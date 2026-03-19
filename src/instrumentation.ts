@@ -1,5 +1,5 @@
 // Next.js instrumentation hook — runs once on server startup.
-// Automatically registers the Telegram webhook so the bot receives messages.
+// Automatically registers the Telegram webhook and sets bot commands menu.
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
@@ -15,6 +15,7 @@ export async function register() {
     ? `${siteUrl.replace(/\/$/, '')}/api/telegram/webhook?secret=${encodeURIComponent(secret)}`
     : `${siteUrl.replace(/\/$/, '')}/api/telegram/webhook`;
 
+  // Register webhook
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
       method: 'POST',
@@ -29,5 +30,32 @@ export async function register() {
     }
   } catch (e) {
     console.warn('[Telegram] Failed to register webhook:', e);
+  }
+
+  // Set bot commands menu (shows up as the "Menu" button in Telegram)
+  try {
+    const commands = [
+      { command: 'start', description: 'Главное меню' },
+      { command: 'orders', description: 'Активные заявки' },
+      { command: 'paid', description: 'Оплаченные заявки' },
+      { command: 'canceled', description: 'Отменённые заявки' },
+      { command: 'all', description: 'Все заявки' },
+      { command: 'rates', description: 'Курсы криптовалют' },
+      { command: 'req', description: 'Реквизиты для оплаты' },
+      { command: 'help', description: 'Справка' },
+    ];
+    const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commands }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      console.log('[Telegram] Bot commands set.');
+    } else {
+      console.warn('[Telegram] Failed to set bot commands:', data);
+    }
+  } catch (e) {
+    console.warn('[Telegram] Failed to set bot commands:', e);
   }
 }
