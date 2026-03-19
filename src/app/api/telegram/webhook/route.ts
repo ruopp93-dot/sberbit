@@ -2,13 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { bot } from '@/lib/bot';
 import { OrdersStore } from '@/lib/ordersStore';
 import { sendOrderStatusEmail } from '@/lib/email';
-import { getRates, getRateValue } from '@/lib/cryptoRates';
+import { getRates, getRateValue, loadRatesFromRedis } from '@/lib/cryptoRates';
 import exchangeRates from '@/lib/exchangeRates';
 // pendingActions: Map adminChatId -> { type: 'confirm'|'cancel', orderId }
 const globalPendingKey = '__SB_TELEGRAM_PENDING_ACTIONS_V1__';
 const _g: any = (globalThis as any) || {};
 if (!_g[globalPendingKey]) _g[globalPendingKey] = new Map<string, { type: string; orderId: string }>();
 const PendingActions: Map<string, { type: string; orderId: string }> = _g[globalPendingKey];
+
+// Load persisted rates from Redis on cold start
+const WEBHOOK_REDIS_KEY = '__SB_WEBHOOK_REDIS_LOADED__';
+if (!_g[WEBHOOK_REDIS_KEY]) {
+  _g[WEBHOOK_REDIS_KEY] = true;
+  loadRatesFromRedis().catch(() => {});
+}
 
 // Простая проверка токена вебхука через секрет в query (?secret=...)
 function checkSecret(req: NextRequest) {
