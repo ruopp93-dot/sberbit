@@ -10,7 +10,11 @@
     "prisma:generate": "npx --yes prisma@6.15.0 generate",
     "prisma:migrate": "npx --yes prisma@6.15.0 migrate dev",
     "prisma:deploy": "npx --yes prisma@6.15.0 migrate deploy",
+    "prisma:seed": "npx --yes prisma@6.15.0 db seed",
     "postinstall": "npx --yes prisma@6.15.0 generate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -31,13 +35,13 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
     "tailwindcss": "^4",
+    "tsx": "^4.20.0",
     "typescript": "^5"
   }
 }
