@@ -15,10 +15,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      - name: Validate Prisma schema
+        run: npx prisma@6.15.0 validate
+      - name: Generate Prisma client
+        run: npx prisma@6.15.0 generate
       - name: Build
         run: npm run build
-      - name: Test (if any)
-        run: |
-          if test -f package.json; then echo "No tests configured"; fi
