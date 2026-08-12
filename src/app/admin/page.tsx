@@ -18,21 +18,17 @@ type Order = {
 const statuses = ['CREATED', 'AWAITING_PAYMENT', 'PAID', 'PROCESSING', 'COMPLETED', 'CANCELLED'];
 
 export default function AdminPage() {
-  const [credentials, setCredentials] = useState<string | null>(null);
-  const [login, setLogin] = useState('');
-  const [password, setPassword] = useState('');
   const [orders, setOrders] = useState<Order[]>([]);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    if (!credentials) return;
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/admin/orders', { headers: { Authorization: `Basic ${credentials}` }, cache: 'no-store' });
-      if (!response.ok) throw new Error(response.status === 401 ? 'Неверный логин или пароль' : 'Ошибка загрузки');
+      const response = await fetch('/api/admin/orders', { cache: 'no-store' });
+      if (!response.ok) throw new Error(response.status === 401 ? 'Требуется авторизация' : 'Ошибка загрузки');
       const data = await response.json();
       setOrders(data.orders || []);
     } catch (e) {
@@ -40,15 +36,14 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [credentials]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
 
   async function changeStatus(id: string, nextStatus: string) {
-    if (!credentials) return;
     const response = await fetch('/api/admin/orders', {
       method: 'PATCH',
-      headers: { Authorization: `Basic ${credentials}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status: nextStatus }),
     });
     if (!response.ok) {
@@ -56,18 +51,6 @@ export default function AdminPage() {
       return;
     }
     await load();
-  }
-
-  if (!credentials) {
-    return (
-      <main style={{ maxWidth: 420, margin: '80px auto', padding: 24 }}>
-        <h1>SberBits Admin</h1>
-        <p>Введите данные администратора из ADMIN_LOGIN / ADMIN_PASSWORD.</p>
-        <input placeholder="Логин" value={login} onChange={e => setLogin(e.target.value)} style={{ width: '100%', marginBottom: 12, padding: 10 }} />
-        <input placeholder="Пароль" type="password" value={password} onChange={e => setPassword(e.target.value)} style={{ width: '100%', marginBottom: 12, padding: 10 }} />
-        <button onClick={() => setCredentials(btoa(`${login}:${password}`))} style={{ padding: '10px 16px' }}>Войти</button>
-      </main>
-    );
   }
 
   const visible = status ? orders.filter(o => o.exchangeStatus === status) : orders;
