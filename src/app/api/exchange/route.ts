@@ -174,11 +174,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, message: 'Ошибка при создании заявки' }, { status: 500 });
   }
 }
-
-export async function GET() {
-  const orders = await prisma.exchangeOrder.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: 100,
-  });
-  return NextResponse.json({ orders: orders.map(serializeOrder) });
-}
