@@ -147,7 +147,7 @@ export default function AdminPage() {
               <div><dt style={{ color: '#6b7280' }}>Отдает</dt><dd>{selected.amount} {selected.fromCurrency}</dd></div>
               <div><dt style={{ color: '#6b7280' }}>Получает</dt><dd>{selected.toAmount} {selected.toCurrency}</dd></div>
               <div><dt style={{ color: '#6b7280' }}>Кошелек</dt><dd style={{ wordBreak: 'break-all' }}>{selected.walletAddress}</dd></div>
-              <div><dt style={{ color: '#6b7280' }}>Payment ID</dt><dd style={{ wordBreak: 'break-all' }}>{selected.payment?.externalId || selected.paymentId || '—'}</dd></div>
+              <div><dt style={{ color: '#6b7280' }}>Payment ID</dt><dd style={{ wordBreak: 'break-all' }}>{selected.payment?.externalId || '—'}</dd></div>
               <div><dt style={{ color: '#6b7280' }}>Создана</dt><dd>{new Date(selected.createdAt).toLocaleString('ru-RU')}</dd></div>
             </dl>
 
