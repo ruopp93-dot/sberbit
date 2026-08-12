@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExchangeStatus {
+  CREATED
+  AWAITING_PAYMENT
+  PAID
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  NEW
+  PROCESS
+  UNDERPAID
+  SUCCESS
+  OVERPAID
+  FAIL
+}
+
+model ExchangeOrder {
+  id              String         @id @default(cuid())
+  direction       String?
+  amount          Decimal        @db.Decimal(18, 8)
+  fromCurrency    String         @map("from_currency")
+  toCurrency      String         @map("to_currency")
+  walletAddress   String         @map("wallet_address")
+  contact         String?
+  fromAccount     String?        @map("from_account")
+  paymentId       String?        @unique @map("payment_id")
+  paymentUrl      String?        @map("payment_url")
+  paymentStatus   PaymentStatus  @default(NEW) @map("payment_status")
+  exchangeStatus  ExchangeStatus @default(CREATED) @map("exchange_status")
+  toAmount        Decimal        @db.Decimal(30, 12) @map("to_amount")
+  idempotencyHash String?        @unique @map("idempotency_hash")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  payment       Payment?
+  statusHistory OrderStatusHistory[]
+
+  @@index([exchangeStatus])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@map("exchange_orders")
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  orderId     String        @unique @map("order_id")
+  service     String
+  amount      Decimal       @db.Decimal(18, 8)
+  status      PaymentStatus @default(NEW)
+  externalId  String?       @unique @map("external_id")
+  rawPayload  Json?         @map("raw_payload")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  order ExchangeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("payments")
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  login        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("admin")
+  permissions  Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("admins")
+}
+
+model OrderStatusHistory {
+  id        String         @id @default(cuid())
+  orderId   String         @map("order_id")
+  from      ExchangeStatus?
+  to        ExchangeStatus
+  actor     String?
+  note      String?
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  order ExchangeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("order_status_history")
+}

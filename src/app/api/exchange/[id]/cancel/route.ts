@@ -1,73 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 import { bot } from '@/lib/bot';
-import { OrdersStore } from '@/lib/ordersStore';
 import { sendOrderStatusEmail } from '@/lib/email';
 
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await context.params;
-    const existing = OrdersStore.get(id);
-    if (!existing) {
-      return NextResponse.json(
-        { error: 'Заявка не найдена', details: `Заявка с ID ${id} не существует` },
-        { status: 404 }
-      );
+    const existing = await prisma.exchangeOrder.findUnique({ where: { id } });
+    if (!existing) return NextResponse.json({ error: 'Заявка не найдена' }, { status: 404 });
+
+    if (existing.exchangeStatus === 'COMPLETED') {
+      return NextResponse.json({ error: 'Выполненную заявку нельзя отменить' }, { status: 409 });
     }
 
-    const now = new Date();
-    const updated = {
-      ...existing,
-      status: 'Заявка отменена пользователем',
-      lastStatusUpdate: `${now.toLocaleDateString('ru-RU')}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`,
-    };
-    OrdersStore.save(updated);
+    const updated = await prisma.exchangeOrder.update({
+      where: { id },
+      data: {
+        exchangeStatus: 'CANCELLED',
+        statusHistory: {
+          create: {
+            from: existing.exchangeStatus,
+            to: 'CANCELLED',
+            actor: 'user',
+            note: 'Пользователь отменил заявку',
+          },
+        },
+      },
+    });
 
+    const status = 'Заявка отменена пользователем';
     const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
     if (chatId) {
-      const text = [
-        '❌ Пользователь отменил заявку',
-        `#${id}`,
-        `Отдавал: ${updated.fromAmount} ${updated.fromCurrency}`,
-        updated.fromAccount ? `Со счета: ${updated.fromAccount}` : undefined,
-        `Получал: ${updated.toAmount} ${updated.toCurrency}`,
-        `На счет: ${updated.toAccount}`,
-      ].filter(Boolean).join('\n');
-      await bot.api.sendMessage(chatId, text);
+      try {
+        await bot.api.sendMessage(chatId, [
+          '❌ Пользователь отменил заявку',
+          `#${id}`,
+          `Отдавал: ${updated.amount} ${updated.fromCurrency}`,
+          `Получал: ${updated.toAmount} ${updated.toCurrency}`,
+          `На счет: ${updated.walletAddress}`,
+        ].join('\n'));
+      } catch (error) {
+        console.warn('Telegram cancellation notification failed', error);
+      }
     }
 
-    // Email пользователю об отмене
     try {
-      await sendOrderStatusEmail(
-        updated.email,
-        `Заявка #${updated.id}: отменена пользователем`,
-        {
-          id: updated.id,
-          status: updated.status,
-          email: updated.email || undefined,
-          fromAmount: updated.fromAmount,
-          fromCurrency: updated.fromCurrency,
-          toAmount: updated.toAmount,
-          toCurrency: updated.toCurrency,
-          toAccount: updated.toAccount,
-          createdAt: updated.createdAt,
-          lastStatusUpdate: updated.lastStatusUpdate,
-          paymentDetails: updated.paymentDetails,
-          siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
-        }
-      );
-    } catch (e) {
-      console.warn('Не удалось отправить email об отмене заявки:', e);
+      await sendOrderStatusEmail(updated.contact || undefined, `Заявка #${id}: отменена пользователем`, {
+        id,
+        status,
+        email: updated.contact || undefined,
+        fromAmount: String(updated.amount),
+        fromCurrency: updated.fromCurrency,
+        toAmount: String(updated.toAmount),
+        toCurrency: updated.toCurrency,
+        toAccount: updated.walletAddress,
+        createdAt: updated.createdAt.toLocaleDateString('ru-RU'),
+        lastStatusUpdate: updated.updatedAt.toLocaleDateString('ru-RU'),
+        paymentDetails: updated.paymentUrl || '',
+        siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
+      });
+    } catch (error) {
+      console.warn('Cancellation email failed', error);
     }
 
-    return NextResponse.json({ success: true, order: updated });
+    return NextResponse.json({ success: true, order: { id, status, exchangeStatus: updated.exchangeStatus } });
   } catch (error) {
     console.error('Ошибка при отмене заявки:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при отмене заявки' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Ошибка при отмене заявки' }, { status: 500 });
   }
 }

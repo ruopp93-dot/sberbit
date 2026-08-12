@@ -1,138 +1,176 @@
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import exchangeRates from '@/lib/exchangeRates';
-import { OrdersStore, type ExchangeOrder } from '@/lib/ordersStore';
+import { prisma } from '@/lib/prisma';
+import { createPallyPayment } from '@/lib/pally';
 import { bot } from '@/lib/bot';
 import { sendOrderStatusEmail } from '@/lib/email';
 import { CaptchaStore } from '@/lib/captchaStore';
-import { z } from 'zod';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const exchangeSchema = z.object({
-  fromCurrency: z.string(),
-  toCurrency: z.string(),
-  amount: z.string(),
-  email: z.string().email(),
-  walletAddress: z.string(),
-  fromAccount: z.string().optional(),
+  fromCurrency: z.string().trim().min(1).max(32),
+  toCurrency: z.string().trim().min(1).max(64),
+  amount: z.string().trim().regex(/^\d+(?:\.\d{1,8})?$/),
+  email: z.string().trim().email().max(254),
+  walletAddress: z.string().trim().min(8).max(256),
+  fromAccount: z.string().trim().max(256).optional(),
+  captchaToken: z.string().min(1),
+  captchaAnswer: z.union([z.string(), z.number()]),
 });
+
+function serializeOrder(order: {
+  id: string; amount: unknown; fromCurrency: string; toCurrency: string; walletAddress: string;
+  fromAccount: string | null; paymentUrl: string | null; paymentId: string | null;
+  paymentStatus: string; exchangeStatus: string; toAmount: unknown; createdAt: Date; updatedAt: Date;
+  contact: string | null;
+}) {
+  const status = order.exchangeStatus === 'AWAITING_PAYMENT'
+    ? 'Принята, ожидает оплаты клиентом'
+    : order.exchangeStatus === 'PAID'
+      ? 'Заявка оплачена — идет проверка платежа и обработка заявки'
+      : order.exchangeStatus;
+
+  return {
+    id: order.id,
+    status,
+    exchangeStatus: order.exchangeStatus,
+    paymentStatus: order.paymentStatus,
+    fromAmount: String(order.amount),
+    fromCurrency: order.fromCurrency,
+    fromAccount: order.fromAccount || undefined,
+    toAmount: String(order.toAmount),
+    toCurrency: order.toCurrency,
+    toAccount: order.walletAddress,
+    paymentDetails: order.paymentUrl || '',
+    paymentUrl: order.paymentUrl,
+    paymentId: order.paymentId,
+    createdAt: order.createdAt.toLocaleDateString('ru-RU'),
+    lastStatusUpdate: order.updatedAt.toLocaleDateString('ru-RU') + ', ' + order.updatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+    email: order.contact || undefined,
+  };
+}
 
 export async function POST(request: Request) {
   try {
-    const data = await request.json();
-    exchangeSchema.parse(data);
+    const data = exchangeSchema.parse(await request.json());
 
-    // Captcha validation
-      const { captchaToken, captchaAnswer } = data as any;
-      const captchaOk = CaptchaStore.validate(captchaToken, captchaAnswer);
-      if (!captchaOk) {
-        // collect diagnostics
-        const diag = CaptchaStore.peek(captchaToken);
-        if (!captchaToken) {
-          console.warn('Captcha failed: no token provided', { ip: request.headers.get('x-forwarded-for') });
-        } else if (!diag) {
-          console.warn('Captcha failed: token not found or expired', { token: captchaToken });
-        } else {
-          console.warn('Captcha failed: wrong answer', { token: captchaToken, provided: String(captchaAnswer), expected: diag.answer, attemptsLeft: diag.attemptsLeft });
-        }
-        return NextResponse.json({ success: false, message: 'Неверная капча' }, { status: 400 });
+    if (!CaptchaStore.validate(data.captchaToken, data.captchaAnswer)) {
+      return NextResponse.json({ success: false, message: 'Неверная капча' }, { status: 400 });
     }
-    
-    // Создаем уникальный ID для заявки
-    const orderId = Date.now().toString();
 
-    // Расчёт суммы к получению по серверным курсам
-    const { fromCurrency, toCurrency, amount, walletAddress, email, fromAccount } = data as {
-      fromCurrency: string;
-      toCurrency: string;
-      amount: string;
-      walletAddress: string;
-      email?: string;
-      fromAccount?: string;
-    };
+    const amount = Number(data.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return NextResponse.json({ success: false, message: 'Некорректная сумма' }, { status: 400 });
+    }
 
-    const rates = exchangeRates.getRates();
-    const cryptoKey = toCurrency.split('-')[0];
-    const rate = rates[cryptoKey]?.rub;
-    const toAmount = rate ? (Number(amount) / rate).toFixed(8) : '0';
+    const cryptoKey = data.toCurrency.split('-')[0];
+    const rate = exchangeRates.getRates()[cryptoKey]?.rub;
+    if (!rate || !Number.isFinite(rate) || rate <= 0) {
+      return NextResponse.json({ success: false, message: 'Не удалось определить курс обмена' }, { status: 400 });
+    }
 
-    const now = new Date();
-    const createdAt = now.toLocaleDateString('ru-RU');
-    const lastStatusUpdate = `${createdAt}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+    const toAmount = (amount / rate).toFixed(8);
+    const bucket = Math.floor(Date.now() / (10 * 60 * 1000));
+    const idempotencyHash = createHash('sha256')
+      .update(`${data.fromCurrency}|${data.toCurrency}|${data.amount}|${data.walletAddress}|${bucket}`)
+      .digest('hex');
 
-    const order: ExchangeOrder = {
-      id: orderId,
-      status: 'Принята, ожидает оплаты клиентом',
-      fromAmount: amount,
-      fromCurrency,
-      // fromAccount может отсутствовать — не заполняем
-      ...(fromAccount ? { fromAccount } : {}),
-      toAmount,
-      toCurrency: cryptoKey + (toCurrency.includes('-') ? ` ${toCurrency.split('-')[1]}` : ''),
-      toAccount: walletAddress,
-  paymentDetails: 'https://dalink.to/sberbits_com_ru',
-      createdAt,
-      lastStatusUpdate,
-      email,
-    };
+    const duplicate = await prisma.exchangeOrder.findUnique({ where: { idempotencyHash } });
+    if (duplicate) {
+      const order = await prisma.exchangeOrder.findUniqueOrThrow({ where: { id: duplicate.id } });
+      return NextResponse.json({ success: true, orderId: order.id, order: serializeOrder(order), message: 'Заявка уже создана' });
+    }
 
-    OrdersStore.save(order);
+    const order = await prisma.exchangeOrder.create({
+      data: {
+        amount: data.amount,
+        fromCurrency: data.fromCurrency,
+        toCurrency: cryptoKey + (data.toCurrency.includes('-') ? ` ${data.toCurrency.split('-')[1]}` : ''),
+        walletAddress: data.walletAddress,
+        fromAccount: data.fromAccount || null,
+        contact: data.email,
+        toAmount,
+        exchangeStatus: 'CREATED',
+        paymentStatus: 'NEW',
+        idempotencyHash,
+        statusHistory: { create: { to: 'CREATED', actor: 'system', note: 'Заявка создана' } },
+      },
+    });
 
-    // Отправляем оповещение в Telegram администратору, если настроено
     try {
-      const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
-      if (chatId) {
-        const ip = request.headers.get('x-forwarded-for') || 'unknown';
-        const userAgent = request.headers.get('user-agent') || 'unknown';
-        const text = [
-          `Новая заявка #${order.id}`,
-          `Статус: ${order.status}`,
-          `Отдаете: ${order.fromAmount} ${order.fromCurrency}`,
-          order.fromAccount ? `Со счета: ${order.fromAccount}` : undefined,
-          order.email ? `Email: ${order.email}` : undefined,
-          `Получаете: ${order.toAmount} ${order.toCurrency}`,
-          `На счет: ${order.toAccount}`,
-          `Реквизиты для оплаты: ${order.paymentDetails}`,
-          `Создана: ${order.createdAt}`,
-          `Время изменения статуса: ${order.lastStatusUpdate}`,
-          `IP: ${ip}`,
-          `User-Agent: ${userAgent}`,
-        ].filter(Boolean).join('\n');
-        await bot.api.sendMessage(chatId, text);
+      const payment = await createPallyPayment({
+        orderId: order.id,
+        amount: data.amount,
+        description: `SberBits #${order.id}`,
+        custom: order.id,
+      });
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const saved = await tx.exchangeOrder.update({
+          where: { id: order.id },
+          data: {
+            paymentId: payment.billId,
+            paymentUrl: payment.paymentUrl,
+            paymentStatus: 'NEW',
+            exchangeStatus: 'AWAITING_PAYMENT',
+            statusHistory: { create: { from: 'CREATED', to: 'AWAITING_PAYMENT', actor: 'system', note: 'Счет Pally создан' } },
+          },
+        });
+        await tx.payment.create({
+          data: {
+            orderId: order.id,
+            service: 'Pally',
+            amount: data.amount,
+            status: 'NEW',
+            externalId: payment.billId,
+          },
+        });
+        return saved;
+      });
+
+      const serialized = serializeOrder(updated);
+
+      try {
+        const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
+        if (chatId) {
+          await bot.api.sendMessage(chatId, [
+            `🆕 Новая заявка #${updated.id}`,
+            `Статус: ${serialized.status}`,
+            `Отдаете: ${serialized.fromAmount} ${serialized.fromCurrency}`,
+            serialized.fromAccount ? `Со счета: ${serialized.fromAccount}` : undefined,
+            `Email: ${serialized.email}`,
+            `Получаете: ${serialized.toAmount} ${serialized.toCurrency}`,
+            `На счет: ${serialized.toAccount}`,
+            `Оплата Pally: ${serialized.paymentUrl}`,
+          ].filter(Boolean).join('\n'));
+        }
+      } catch (error) {
+        console.warn('Telegram notification failed', error);
       }
-    } catch (notifyErr) {
-      // Логируем, но не прерываем создание заявки
-      console.warn('Не удалось отправить уведомление в Telegram:', notifyErr);
-    }
 
-    // Email пользователю о создании заявки
-    try {
-      await sendOrderStatusEmail(
-        order.email,
-        `Заявка #${order.id} создана` ,
-        {
-          id: order.id,
-          status: order.status,
-          email: order.email,
-          fromAmount: order.fromAmount,
-          fromCurrency: order.fromCurrency,
-          toAmount: order.toAmount,
-          toCurrency: order.toCurrency,
-          toAccount: order.toAccount,
-          createdAt: order.createdAt,
-          lastStatusUpdate: order.lastStatusUpdate,
-          paymentDetails: order.paymentDetails,
+      try {
+        await sendOrderStatusEmail(serialized.email, `Заявка #${updated.id} создана`, {
+          ...serialized,
           siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
-        }
-      );
-    } catch (e) {
-      console.warn('Не удалось отправить email о создании заявки:', e);
-    }
+        });
+      } catch (error) {
+        console.warn('Creation email failed', error);
+      }
 
-    return NextResponse.json({ success: true, orderId, order, message: 'Заявка успешно создана' });
+      return NextResponse.json({ success: true, orderId: updated.id, order: serialized, paymentUrl: payment.paymentUrl, message: 'Заявка успешно создана' });
+    } catch (paymentError) {
+      console.error('Pally payment creation failed', paymentError);
+      return NextResponse.json({ success: false, message: 'Не удалось создать платеж. Попробуйте еще раз.' }, { status: 502 });
+    }
   } catch (error) {
-    console.error('Ошибка при обработке заявки:', error);
-    return NextResponse.json(
-      { success: false, message: 'Ошибка при создании заявки' },
-      { status: 400 }
-    );
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ success: false, message: 'Проверьте данные заявки', issues: error.issues }, { status: 400 });
+    }
+    console.error('Ошибка при создании заявки:', error);
+    return NextResponse.json({ success: false, message: 'Ошибка при создании заявки' }, { status: 500 });
   }
 }
