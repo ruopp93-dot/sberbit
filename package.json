@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "build": "npx --yes prisma@6.15.0 generate && next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prisma:generate": "npx --yes prisma@6.15.0 generate",
+    "prisma:migrate": "npx --yes prisma@6.15.0 migrate dev",
+    "prisma:deploy": "npx --yes prisma@6.15.0 migrate deploy",
+    "postinstall": "npx --yes prisma@6.15.0 generate"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
