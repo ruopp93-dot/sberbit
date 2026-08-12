@@ -13,9 +13,6 @@
     "prisma:seed": "npx --yes prisma@6.15.0 db seed",
     "postinstall": "npx --yes prisma@6.15.0 generate"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
     "@prisma/client": "^6.15.0",
@@ -41,7 +38,6 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
     "tailwindcss": "^4",
-    "tsx": "^4.20.0",
     "typescript": "^5"
   }
 }
