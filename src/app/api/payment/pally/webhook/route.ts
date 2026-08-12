@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { mapPallyStatus, verifyPallyPostback } from '@/lib/pally';
+import { bot } from '@/lib/bot';
+import { sendOrderStatusEmail } from '@/lib/email';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,10 +30,7 @@ export async function POST(request: Request) {
     }
 
     const order = await prisma.exchangeOrder.findUnique({ where: { id: orderId }, include: { payment: true } });
-    if (!order) {
-      console.warn('Pally postback for unknown order', { orderId });
-      return NextResponse.json({ ok: false, error: 'Order not found' }, { status: 404 });
-    }
+    if (!order) return NextResponse.json({ ok: false, error: 'Order not found' }, { status: 404 });
 
     const received = Number(amount);
     const expected = Number(order.amount);
@@ -42,17 +41,20 @@ export async function POST(request: Request) {
       if (received < expected) finalPaymentStatus = 'UNDERPAID';
       else if (received > expected) finalPaymentStatus = 'OVERPAID';
       else finalExchangeStatus = 'PAID';
+    } else if (status === 'FAIL') {
+      finalExchangeStatus = 'CANCELLED';
     }
 
-    await prisma.$transaction(async (tx) => {
-      const existingPayment = order.payment;
+    const alreadyHandled = order.paymentStatus === finalPaymentStatus && order.exchangeStatus === finalExchangeStatus;
+    if (alreadyHandled) return NextResponse.json({ ok: true, duplicate: true });
 
-      if (existingPayment) {
+    await prisma.$transaction(async (tx) => {
+      if (order.payment) {
         await tx.payment.update({
-          where: { id: existingPayment.id },
+          where: { id: order.payment.id },
           data: {
             status: finalPaymentStatus,
-            externalId: paymentId || existingPayment.externalId,
+            externalId: paymentId || order.payment.externalId,
             rawPayload: payload,
           },
         });
@@ -61,7 +63,7 @@ export async function POST(request: Request) {
           data: {
             orderId: order.id,
             service: 'Pally',
-            amount: amount,
+            amount,
             status: finalPaymentStatus,
             externalId: paymentId,
             rawPayload: payload,
@@ -69,33 +71,54 @@ export async function POST(request: Request) {
         });
       }
 
-      if (finalExchangeStatus !== order.exchangeStatus) {
-        await tx.exchangeOrder.update({
-          where: { id: order.id },
-          data: {
-            paymentStatus: finalPaymentStatus,
-            exchangeStatus: finalExchangeStatus,
-            paymentId: billId || order.paymentId,
-            statusHistory: {
-              create: {
-                from: order.exchangeStatus,
-                to: finalExchangeStatus,
-                actor: 'pally-webhook',
-                note: `Pally status ${status}`,
-              },
-            },
-          },
-        });
-      } else {
-        await tx.exchangeOrder.update({
-          where: { id: order.id },
-          data: {
-            paymentStatus: finalPaymentStatus,
-            paymentId: billId || order.paymentId,
-          },
-        });
-      }
+      await tx.exchangeOrder.update({
+        where: { id: order.id },
+        data: {
+          paymentStatus: finalPaymentStatus,
+          exchangeStatus: finalExchangeStatus,
+          paymentId: billId || order.paymentId,
+          statusHistory: finalExchangeStatus !== order.exchangeStatus
+            ? {
+                create: {
+                  from: order.exchangeStatus,
+                  to: finalExchangeStatus,
+                  actor: 'pally-webhook',
+                  note: `Pally status ${status}`,
+                },
+              }
+            : undefined,
+        },
+      });
     });
+
+    if (finalExchangeStatus === 'PAID') {
+      const text = `✅ Pally подтвердил оплату заявки #${order.id}\nСумма: ${amount} RUB\nСтатус: PAID`;
+      try {
+        const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
+        if (chatId) await bot.api.sendMessage(chatId, text);
+      } catch (error) {
+        console.warn('Telegram payment notification failed', error);
+      }
+
+      try {
+        await sendOrderStatusEmail(order.contact || undefined, `Заявка #${order.id}: оплата подтверждена`, {
+          id: order.id,
+          status: 'Заявка оплачена — идет проверка платежа и обработка заявки',
+          email: order.contact || undefined,
+          fromAmount: String(order.amount),
+          fromCurrency: order.fromCurrency,
+          toAmount: String(order.toAmount),
+          toCurrency: order.toCurrency,
+          toAccount: order.walletAddress,
+          createdAt: order.createdAt.toLocaleDateString('ru-RU'),
+          lastStatusUpdate: new Date().toLocaleDateString('ru-RU'),
+          paymentDetails: order.paymentUrl || '',
+          siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
+        });
+      } catch (error) {
+        console.warn('Payment email failed', error);
+      }
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
