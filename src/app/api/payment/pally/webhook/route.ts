@@ -29,10 +29,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: 'Invalid signature' }, { status: 401 });
     }
 
-    const order = await prisma.exchangeOrder.findUnique({ where: { id: orderId }, include: { payment: true } });
+    const received = Number(amount);
+    if (!Number.isFinite(received) || received <= 0) {
+      return NextResponse.json({ ok: false, error: 'Invalid amount' }, { status: 400 });
+    }
+
+    const order = await prisma.exchangeOrder.findUnique({
+      where: { id: orderId },
+      include: { payment: true },
+    });
     if (!order) return NextResponse.json({ ok: false, error: 'Order not found' }, { status: 404 });
 
-    const received = Number(amount);
     const expected = Number(order.amount);
     let finalPaymentStatus = status;
     let finalExchangeStatus = order.exchangeStatus;
@@ -48,20 +55,29 @@ export async function POST(request: Request) {
     const alreadyHandled = order.paymentStatus === finalPaymentStatus && order.exchangeStatus === finalExchangeStatus;
     if (alreadyHandled) return NextResponse.json({ ok: true, duplicate: true });
 
-    await prisma.$transaction(async (tx) => {
-      if (order.payment) {
+    await prisma.$transaction(async tx => {
+      const current = await tx.exchangeOrder.findUnique({
+        where: { id: order.id },
+        include: { payment: true },
+      });
+      if (!current) throw new Error('Order disappeared during webhook processing');
+
+      const stillSameState = current.paymentStatus === finalPaymentStatus && current.exchangeStatus === finalExchangeStatus;
+      if (stillSameState) return;
+
+      if (current.payment) {
         await tx.payment.update({
-          where: { id: order.payment.id },
+          where: { id: current.payment.id },
           data: {
             status: finalPaymentStatus,
-            externalId: paymentId || order.payment.externalId,
+            externalId: paymentId || current.payment.externalId,
             rawPayload: payload,
           },
         });
       } else {
         await tx.payment.create({
           data: {
-            orderId: order.id,
+            orderId: current.id,
             service: 'Pally',
             amount,
             status: finalPaymentStatus,
@@ -72,15 +88,15 @@ export async function POST(request: Request) {
       }
 
       await tx.exchangeOrder.update({
-        where: { id: order.id },
+        where: { id: current.id },
         data: {
           paymentStatus: finalPaymentStatus,
           exchangeStatus: finalExchangeStatus,
-          paymentId: billId || order.paymentId,
-          statusHistory: finalExchangeStatus !== order.exchangeStatus
+          paymentId: billId || current.paymentId,
+          statusHistory: finalExchangeStatus !== current.exchangeStatus
             ? {
                 create: {
-                  from: order.exchangeStatus,
+                  from: current.exchangeStatus,
                   to: finalExchangeStatus,
                   actor: 'pally-webhook',
                   note: `Pally status ${status}`,
