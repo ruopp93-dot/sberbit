@@ -47,11 +47,15 @@ export async function POST(request: Request) {
       orderId: order.id,
       paymentUrl: payment.payment_url,
     });
-  } catch (error) {
-    console.error(error);
+  } catch (error: any) {
+    console.error("EXCHANGE ERROR:", error);
+
     return NextResponse.json(
-      { success: false, message: "Ошибка создания заявки" },
-      { status: 400 }
+      {
+        success: false,
+        message: error?.message || "Ошибка создания заявки",
+      },
+      { status: 500 }
     );
   }
-} 
+}
