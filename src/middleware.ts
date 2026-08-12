@@ -1,11 +1,8 @@
-import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 function safeEqual(a: string, b: string) {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
+  return a === b;
 }
 
 function unauthorized() {
@@ -34,6 +31,7 @@ export function middleware(request: NextRequest) {
 
     const login = decoded.slice(0, separator);
     const password = decoded.slice(separator + 1);
+
     if (!safeEqual(login, configuredLogin) || !safeEqual(password, configuredPassword)) {
       return unauthorized();
     }
