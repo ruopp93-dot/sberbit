@@ -5,7 +5,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 enum ExchangeStatus {
@@ -44,8 +43,8 @@ model ExchangeOrder {
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
-  payment         Payment?
-  statusHistory   OrderStatusHistory[]
+  payment       Payment?
+  statusHistory OrderStatusHistory[]
 
   @@index([exchangeStatus])
   @@index([paymentStatus])
@@ -64,19 +63,19 @@ model Payment {
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
-  order       ExchangeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order ExchangeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@map("payments")
 }
 
 model Admin {
-  id          String   @id @default(cuid())
-  login       String   @unique
-  passwordHash String  @map("password_hash")
-  role        String   @default("admin")
-  permissions Json?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id           String   @id @default(cuid())
+  login        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("admin")
+  permissions  Json?
+  createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("admins")
 }
@@ -90,7 +89,7 @@ model OrderStatusHistory {
   note      String?
   createdAt DateTime       @default(now()) @map("created_at")
 
-  order     ExchangeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order ExchangeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId, createdAt])
   @@map("order_status_history")
