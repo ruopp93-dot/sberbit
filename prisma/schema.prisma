@@ -2,27 +2,31 @@ generator client {
   provider = "prisma-client-js"
 }
 
- datasource db {
+datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model ExchangeOrder {
-  id              String   @id @default(cuid())
-  direction       String
-  amount          Decimal
-  fromCurrency    String
-  toCurrency      String
-  walletAddress   String
-  contact         String
-  paymentId       String?
-  paymentUrl      String?
-  paymentStatus   String   @default("pending")
-  exchangeStatus  String   @default("created")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  direction      String
+  amount         Decimal
+  fromCurrency   String
+  toCurrency     String
+  walletAddress  String
+  contact        String
+  paymentId      String?  @unique
+  paymentUrl     String?
+  paymentStatus  String   @default("pending")
+  exchangeStatus String   @default("created")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   payments Payment[]
+
+  @@index([exchangeStatus])
+  @@index([paymentStatus])
+  @@index([createdAt])
 }
 
 model Payment {
@@ -31,9 +35,12 @@ model Payment {
   service   String
   amount    Decimal
   status    String   @default("pending")
+  externalId String? @unique
   createdAt DateTime @default(now())
 
   order ExchangeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }
 
 model Admin {
@@ -51,4 +58,6 @@ model OrderStatusHistory {
   status    String
   comment   String?
   createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
