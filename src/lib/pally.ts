@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 const PALLY_API_URL = process.env.PALLY_API_URL || "https://pally.info/api";
 
 export async function createPallyPayment(params: {
@@ -27,7 +29,6 @@ export async function createPallyPayment(params: {
 }
 
 export function verifyPallySignature(body: string, signature: string) {
-  const crypto = require("crypto");
   const expected = crypto
     .createHmac("sha256", process.env.PALLY_WEBHOOK_SECRET || "")
     .update(body)
