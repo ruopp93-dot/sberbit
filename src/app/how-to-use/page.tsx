@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 export default function HowToUsePage() {
   return (
@@ -11,7 +11,7 @@ export default function HowToUsePage() {
           <section className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-6 shadow-xl backdrop-blur">
             <h2 className="mb-4 text-xl font-semibold">Общая информация</h2>
             <p className="mb-4 text-[var(--sb-muted)]">
-              Наш сервис предоставляет быстрый и безопасный обмен криптовалют на рубли и обратно. 
+              Наш сервис предоставляет быстрый и безопасный обмен криптовалют на рубли и обратно.
               Мы поддерживаем популярные платежные методы и криптовалюты, обеспечивая надежный и удобный процесс обмена.
             </p>
           </section>
@@ -19,12 +19,15 @@ export default function HowToUsePage() {
           {/* Пошаговая инструкция */}
           <section className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-6 shadow-xl backdrop-blur">
             <h2 className="mb-4 text-xl font-semibold">Пошаговая инструкция по обмену</h2>
+
             <div className="space-y-6">
               <div>
                 <h3 className="mb-2 text-lg font-medium">1. Создание заявки</h3>
                 <ul className="list-disc list-inside space-y-2 text-[var(--sb-muted)]">
                   <li>Выберите направление обмена (например, Сбербанк ₽ → Bitcoin)</li>
-                  <li>Введите сумму для обмена (минимальная сумма - 1000 ₽)</li>
+                  <li>
+                    Введите сумму для обмена — <strong>минимальная сумма обмена составляет 1 000 ₽</strong>
+                  </li>
                   <li>Проверьте расчетную сумму к получению и текущий курс обмена</li>
                   <li>Укажите ваш email для получения уведомлений</li>
                   <li>Введите адрес криптовалютного кошелька для получения средств</li>
@@ -57,21 +60,49 @@ export default function HowToUsePage() {
           {/* Важные моменты */}
           <section className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-6 shadow-xl backdrop-blur">
             <h2 className="mb-4 text-xl font-semibold">Важные моменты</h2>
-            <div className="space-y-4">
+
+            <div className="space-y-5">
+              {/* Минимальная сумма */}
+              <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4">
+                <h3 className="mb-2 text-lg font-semibold">
+                  Минимальная сумма обмена — 1 000 ₽
+                </h3>
+
+                <p className="text-[var(--sb-muted)]">
+                  <strong>Минимальная сумма пополнения составляет 1 000 ₽.</strong>{" "}
+                  Перед переводом обязательно убедитесь, что сумма платежа соответствует
+                  минимальной сумме обмена.
+                </p>
+
+                <p className="mt-3 font-medium text-yellow-400">
+                  ⚠️ Внимание: если сумма пополнения окажется меньше 1 000 ₽,
+                  заявка не будет обработана, а денежные средства не возвращаются.
+                </p>
+              </div>
+
               <div>
                 <h3 className="mb-2 text-lg font-medium">Верификация</h3>
                 <p className="text-[var(--sb-muted)]">
-                  При суммах от 10 000 ₽ или при частых обменах может потребоваться верификация через видеозвонок. 
-                  Это необходимо для обеспечения безопасности и соответствия требованиям KYC/AML.
+                  При суммах от 10 000 ₽ или при частых обменах может потребоваться
+                  верификация через видеозвонок. Это необходимо для обеспечения
+                  безопасности и соответствия требованиям KYC/AML.
                 </p>
               </div>
 
               <div>
                 <h3 className="mb-2 text-lg font-medium">Отмена и возврат</h3>
-                <ul className="list-disc list-inside text-[var(--sb-muted)]">
+                <ul className="list-disc list-inside text-[var(--sb-muted)] space-y-2">
                   <li>До оплаты заявку можно отменить в любой момент</li>
                   <li>После выполнения заявки возврат средств невозможен</li>
-                  <li>Если заявка оплачена, но не выполнена, возможен возврат за вычетом комиссии</li>
+                  <li>
+                    Если заявка оплачена, но не выполнена, возможен возврат
+                    за вычетом комиссии
+                  </li>
+                  <li>
+                    <strong>
+                      Платежи на сумму менее 1 000 ₽ не принимаются и не возвращаются.
+                    </strong>
+                  </li>
                 </ul>
               </div>
             </div>
@@ -80,11 +111,13 @@ export default function HowToUsePage() {
           {/* Безопасность */}
           <section className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-6 shadow-xl backdrop-blur">
             <h2 className="mb-4 text-xl font-semibold">Безопасность</h2>
+
             <div className="space-y-4">
               <p className="text-[var(--sb-muted)]">
                 Для обеспечения безопасности обменов мы рекомендуем:
               </p>
-              <ul className="list-disc list-inside text-[var(--sb-muted)]">
+
+              <ul className="list-disc list-inside text-[var(--sb-muted)] space-y-2">
                 <li>Всегда проверяйте реквизиты перед отправкой средств</li>
                 <li>Используйте актуальный email для получения уведомлений</li>
                 <li>Не передавайте никому данные о своих транзакциях</li>
@@ -96,11 +129,13 @@ export default function HowToUsePage() {
           {/* Поддержка */}
           <section className="rounded-2xl border border-[var(--sb-border)] bg-[var(--sb-surface)] p-6 shadow-xl backdrop-blur">
             <h2 className="mb-4 text-xl font-semibold">Поддержка</h2>
+
             <div className="space-y-4">
               <p className="text-[var(--sb-muted)]">
                 Если у вас возникли вопросы или нужна помощь:
               </p>
-              <ul className="list-disc list-inside text-[var(--sb-muted)]">
+
+              <ul className="list-disc list-inside text-[var(--sb-muted)] space-y-2">
                 <li>Используйте кнопку поддержки в Telegram (доступна 24/7)</li>
                 <li>Сообщайте ID заявки при обращении в поддержку</li>
                 <li>Сохраняйте все чеки и скриншоты переводов</li>
