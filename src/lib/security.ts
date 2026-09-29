@@ -57,10 +57,23 @@ export function rateLimit(key: string, limit: number, windowMs: number): boolean
   return bucket.count <= limit;
 }
 
+/**
+ * Client address for rate limiting, derived only from what a trusted proxy set.
+ * - On Vercel the platform overwrites x-real-ip / x-forwarded-for, so they are trusted.
+ * - Elsewhere the leftmost X-Forwarded-For entries are client-controlled; we take the
+ *   entry appended by our own proxy chain: TRUSTED_PROXY_HOPS from the right (default 1).
+ *   The app must run behind such a proxy (nginx, Traefik, …) that appends X-Forwarded-For.
+ */
 export function getClientIp(request: Request): string {
+  if (process.env.VERCEL) {
+    const ip = request.headers.get('x-real-ip') || request.headers.get('x-forwarded-for')?.split(',')[0];
+    return ip?.trim() || 'unknown';
+  }
   const fwd = request.headers.get('x-forwarded-for');
-  if (fwd) return fwd.split(',')[0].trim();
-  return request.headers.get('x-real-ip') || 'unknown';
+  if (!fwd) return 'unknown';
+  const hops = Math.max(1, Number(process.env.TRUSTED_PROXY_HOPS) || 1);
+  const chain = fwd.split(',').map((s) => s.trim()).filter(Boolean);
+  return chain[Math.max(0, chain.length - hops)] || 'unknown';
 }
 
 // ─── HTML escaping (for emails etc.) ─────────────────────────────────────────

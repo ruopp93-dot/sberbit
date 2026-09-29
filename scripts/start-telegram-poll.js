@@ -22,12 +22,50 @@ async function forwardUpdate(update) {
   }
 }
 
+let previousWebhookUrl = '';
+let stopping = false;
+
+async function restoreWebhook() {
+  if (!previousWebhookUrl) return;
+  const body = { url: previousWebhookUrl };
+  if (webhookSecret) body.secret_token = webhookSecret;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    console.log('[poller] webhook restored:', data.ok ? 'ok' : data.description);
+  } catch (err) {
+    console.error('[poller] failed to restore webhook, re-register it via /api/telegram/setup', err);
+  }
+}
+
+async function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  await restoreWebhook();
+  process.exit(0);
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
 async function poll() {
-  // getUpdates does not work while a webhook is set
+  // getUpdates does not work while a webhook is set: remember it, remove it, restore on exit
+  try {
+    const info = await (await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`)).json();
+    previousWebhookUrl = info?.result?.url || '';
+  } catch {
+    // ignore
+  }
+  if (previousWebhookUrl) {
+    console.warn('[poller] temporarily removing webhook; it will be restored on Ctrl+C. Prefer a separate dev bot token.');
+  }
   await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`, { method: 'POST' }).catch(() => {});
   let offset = 0;
   console.log('[poller] Telegram poller started, forwarding to', endpoint);
-  for (;;) {
+  while (!stopping) {
     try {
       const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?timeout=30&offset=${offset}`);
       const data = await res.json();

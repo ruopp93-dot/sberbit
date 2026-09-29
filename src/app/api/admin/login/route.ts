@@ -22,6 +22,11 @@ export async function POST(request: Request) {
     }
     const { login, password } = parsed.data;
 
+    // Per-account limit that does not depend on the client address at all.
+    if (!rateLimit(`admin-login-user:${login.toLowerCase()}`, 20, 15 * 60 * 1000)) {
+      return NextResponse.json({ error: "Too many attempts, try later" }, { status: 429 });
+    }
+
     const admin = await prisma.admin.findUnique({
       where: { login },
     });
