@@ -1,6 +1,6 @@
 // Simple in-memory captcha store for dev/testing.
 // Each challenge has a token, question and numeric answer and expires after TTL.
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 
 type CaptchaEntry = { answer: string; expiresAt: number; question: string; attemptsLeft: number };
 
@@ -12,12 +12,23 @@ if (!_global[globalKey]) {
 }
 const store: Map<string, CaptchaEntry> = _global[globalKey];
 const TTL_MS = 1000 * 60 * 5; // 5 minutes
+const MAX_ENTRIES = 10_000;
 
 export const CaptchaStore = {
   create(): { token: string; question: string } {
+    // purge expired entries and cap the store size to avoid memory exhaustion
+    const now = Date.now();
+    if (store.size > 1000) {
+      for (const [k, v] of store) if (v.expiresAt <= now) store.delete(k);
+    }
+    while (store.size >= MAX_ENTRIES) {
+      const oldest = store.keys().next().value;
+      if (oldest === undefined) break;
+      store.delete(oldest);
+    }
     // simple addition captcha
-    const a = Math.floor(Math.random() * 9) + 1;
-    const b = Math.floor(Math.random() * 9) + 1;
+    const a = randomInt(1, 10);
+    const b = randomInt(1, 10);
     const answer = String(a + b);
     const question = `${a} + ${b} = ?`;
     const token = randomUUID();
@@ -51,17 +62,8 @@ export const CaptchaStore = {
     } else {
       // update remaining attempts
       store.set(token, entry);
-      console.warn(`Captcha token ${token} wrong answer, attempts left: ${entry.attemptsLeft} (provided: '${cleaned}')`);
+      console.warn(`Captcha token ${token} wrong answer, attempts left: ${entry.attemptsLeft}`);
     }
     return false;
-  }
-  ,
-  // debug helper: return a safe copy of the entry for diagnostics (returns undefined if not found)
-  peek(token?: string) {
-    if (!token) return undefined;
-    const entry = store.get(token);
-    if (!entry) return undefined;
-    // return a shallow copy (including answer) for server-side debugging only
-    return { question: entry.question, answer: entry.answer, expiresAt: entry.expiresAt, attemptsLeft: entry.attemptsLeft };
   }
 };

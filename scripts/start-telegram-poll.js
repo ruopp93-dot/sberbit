@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Simple dev poller: uses node-telegram-bot-api to poll updates and forwards them to local webhook
-const TelegramBot = require('node-telegram-bot-api');
+// Simple dev poller: long-polls Telegram getUpdates and forwards updates to the local webhook.
+// Requires Node >= 18 (global fetch).
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
   console.error('TELEGRAM_BOT_TOKEN is not set. Set it in .env.local or environment.');
@@ -9,30 +9,42 @@ if (!token) {
 
 const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
 const site = process.env.NEXT_PUBLIC_SITE_URL || 'https://sberbits.com.ru/';
-const endpoint = webhookSecret ? `${site.replace(/\/$/, '')}/api/telegram/webhook?secret=${webhookSecret}` : `${site.replace(/\/$/, '')}/api/telegram/webhook`;
+const endpoint = `${site.replace(/\/$/, '')}/api/telegram/webhook`;
+const headers = { 'content-type': 'application/json' };
+if (webhookSecret) headers['x-telegram-bot-api-secret-token'] = webhookSecret;
 
-const bot = new TelegramBot(token, { polling: true });
-
-function forwardUpdate(obj) {
+async function forwardUpdate(update) {
   try {
-    fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) })
-      .then(res => console.log('[poller] forwarded update, status', res.status))
-      .catch(err => console.error('[poller] forward error', err));
-  } catch (e) {
-    console.error('[poller] fetch failed (is Node >=18?):', e);
+    const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(update) });
+    console.log('[poller] forwarded update, status', res.status);
+  } catch (err) {
+    console.error('[poller] forward error', err);
   }
 }
 
-bot.on('message', (msg) => {
-  console.log('[poller] message from', msg.chat && (msg.chat.username || msg.chat.id));
-  forwardUpdate({ message: msg });
-});
+async function poll() {
+  // getUpdates does not work while a webhook is set
+  await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`, { method: 'POST' }).catch(() => {});
+  let offset = 0;
+  console.log('[poller] Telegram poller started, forwarding to', endpoint);
+  for (;;) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?timeout=30&offset=${offset}`);
+      const data = await res.json();
+      if (!data.ok) {
+        console.error('[poller] polling error', data.description);
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      for (const update of data.result) {
+        offset = update.update_id + 1;
+        if (update.message || update.callback_query) await forwardUpdate(update);
+      }
+    } catch (err) {
+      console.error('[poller] polling error', err);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+}
 
-bot.on('callback_query', (cq) => {
-  console.log('[poller] callback_query from', cq.from && (cq.from.username || cq.from.id));
-  forwardUpdate({ callback_query: cq });
-});
-
-bot.on('polling_error', (err) => console.error('[poller] polling error', err));
-
-console.log('[poller] Telegram poller started, forwarding to', endpoint);
+poll();

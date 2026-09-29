@@ -29,10 +29,16 @@ export async function createPallyPayment(params: {
 }
 
 export function verifyPallySignature(body: string, signature: string) {
+  const secret = process.env.PALLY_WEBHOOK_SECRET;
+  // Without a secret anyone could forge a valid HMAC (empty key) — fail closed.
+  if (!secret || !signature) return false;
+
   const expected = crypto
-    .createHmac("sha256", process.env.PALLY_WEBHOOK_SECRET || "")
+    .createHmac("sha256", secret)
     .update(body)
     .digest("hex");
 
-  return expected === signature;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature.trim().toLowerCase());
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }

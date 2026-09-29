@@ -14,13 +14,10 @@
     "@hookform/resolvers": "^5.2.1",
     "@prisma/client": "^6.15.0",
     "@upstash/redis": "^1.37.0",
-    "axios": "^1.11.0",
-    "coingecko-api-v3": "^0.0.31",
     "decimal.js": "^10.6.0",
     "grammy": "^1.38.1",
-    "next": "15.5.12",
-    "node-telegram-bot-api": "^0.66.0",
-    "nodemailer": "^7.0.6",
+    "next": "15.5.26",
+    "nodemailer": "^10.0.12",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-hook-form": "^7.62.0",
@@ -33,10 +30,10 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.5.2",
+    "eslint-config-next": "15.5.26",
     "prisma": "^6.15.0",
     "tailwindcss": "^4",
-    "typescript": "^5",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "typescript": "^5"
   }
 }

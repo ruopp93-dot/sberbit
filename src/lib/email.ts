@@ -1,5 +1,6 @@
 // Email helper using dynamic import of nodemailer to avoid hard dependency.
 // Works only if SMTP env vars are configured; otherwise it no-ops.
+import { escapeHtml } from './security';
 
 export type OrderEmailPayload = {
   id: string;
@@ -55,7 +56,7 @@ export async function sendOrderStatusEmail(
     });
 
     const orderUrl = payload.siteUrl
-      ? `${payload.siteUrl.replace(/\/$/, '')}/order/${payload.id}`
+      ? `${payload.siteUrl.replace(/\/$/, '')}/order/${encodeURIComponent(payload.id)}`
       : undefined;
 
     const textLines = [
@@ -74,17 +75,17 @@ export async function sendOrderStatusEmail(
 
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
-        <h2 style="margin:0 0 12px">Заявка #${payload.id}</h2>
-        <p><strong>Статус:</strong> ${payload.status}</p>
+        <h2 style="margin:0 0 12px">Заявка #${escapeHtml(payload.id)}</h2>
+        <p><strong>Статус:</strong> ${escapeHtml(payload.status)}</p>
         <ul>
-          <li><strong>Отдаете:</strong> ${payload.fromAmount} ${payload.fromCurrency}</li>
-          <li><strong>Получаете:</strong> ${payload.toAmount} ${payload.toCurrency}</li>
-          <li><strong>На счет:</strong> ${payload.toAccount}</li>
-          ${payload.paymentDetails ? `<li><strong>Реквизиты для оплаты:</strong> ${payload.paymentDetails}</li>` : ''}
-          ${payload.createdAt ? `<li><strong>Создана:</strong> ${payload.createdAt}</li>` : ''}
-          ${payload.lastStatusUpdate ? `<li><strong>Изменена:</strong> ${payload.lastStatusUpdate}</li>` : ''}
+          <li><strong>Отдаете:</strong> ${escapeHtml(payload.fromAmount)} ${escapeHtml(payload.fromCurrency)}</li>
+          <li><strong>Получаете:</strong> ${escapeHtml(payload.toAmount)} ${escapeHtml(payload.toCurrency)}</li>
+          <li><strong>На счет:</strong> ${escapeHtml(payload.toAccount)}</li>
+          ${payload.paymentDetails ? `<li><strong>Реквизиты для оплаты:</strong> ${escapeHtml(payload.paymentDetails)}</li>` : ''}
+          ${payload.createdAt ? `<li><strong>Создана:</strong> ${escapeHtml(payload.createdAt)}</li>` : ''}
+          ${payload.lastStatusUpdate ? `<li><strong>Изменена:</strong> ${escapeHtml(payload.lastStatusUpdate)}</li>` : ''}
         </ul>
-        ${orderUrl ? `<p><a href="${orderUrl}">Открыть страницу заявки</a></p>` : ''}
+        ${orderUrl ? `<p><a href="${escapeHtml(orderUrl)}">Открыть страницу заявки</a></p>` : ''}
       </div>
     `;
 

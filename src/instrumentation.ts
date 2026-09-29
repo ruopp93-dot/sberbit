@@ -11,16 +11,15 @@ export async function register() {
   }
 
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  const webhookUrl = secret
-    ? `${siteUrl.replace(/\/$/, '')}/api/telegram/webhook?secret=${encodeURIComponent(secret)}`
-    : `${siteUrl.replace(/\/$/, '')}/api/telegram/webhook`;
+  // Секрет передаётся через secret_token (заголовок), а не в URL, чтобы не светить его в логах.
+  const webhookUrl = `${siteUrl.replace(/\/$/, '')}/api/telegram/webhook`;
 
   // Register webhook
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: webhookUrl }),
+      body: JSON.stringify(secret ? { url: webhookUrl, secret_token: secret } : { url: webhookUrl }),
     });
     const data = await res.json();
     if (data.ok) {

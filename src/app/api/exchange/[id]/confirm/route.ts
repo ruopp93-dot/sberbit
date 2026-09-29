@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { bot } from '@/lib/bot';
 import { OrdersStore } from '@/lib/ordersStore';
 import { sendOrderStatusEmail } from '@/lib/email';
+import { getClientIp, rateLimit } from '@/lib/security';
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  if (!rateLimit(`order-action:${getClientIp(request)}`, 10, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
+  }
+
   try {
     const { id } = await context.params;
     const existing = OrdersStore.get(id);
@@ -14,6 +19,14 @@ export async function POST(
       return NextResponse.json(
         { error: 'Заявка не найдена', details: `Заявка с ID ${id} не существует` },
         { status: 404 }
+      );
+    }
+
+    // Нельзя подтвердить отменённую или уже подтверждённую заявку
+    if (/отмен/i.test(existing.status) || /оплачена/i.test(existing.status)) {
+      return NextResponse.json(
+        { error: 'Статус заявки не позволяет подтвердить оплату' },
+        { status: 409 }
       );
     }
 

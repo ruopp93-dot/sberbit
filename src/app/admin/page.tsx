@@ -1,8 +1,16 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { ADMIN_COOKIE, verifySessionToken } from "@/lib/adminSession";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
+  const cookieStore = await cookies();
+  if (!(await verifySessionToken(cookieStore.get(ADMIN_COOKIE)?.value))) {
+    redirect("/admin/login");
+  }
+
   const orders = await prisma.exchangeOrder.findMany({
     orderBy: { createdAt: "desc" },
     take: 50,

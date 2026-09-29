@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Decimal from 'decimal.js';
+import Link from 'next/link';
 
 function normalizeAmountInput(value: string): string {
   const v = String(value ?? '').trim().replace(/\s+/g, '');
@@ -65,7 +66,12 @@ const exchangeFormSchema = z.object({
     .min(1, 'Введите сумму')
     .refine((val) => parsePositiveAmount(val) !== null, { message: 'Должно быть числом больше 0' }),
   email: z.string().email("Неверный формат email"),
-  walletAddress: z.string().min(1, "Необходимо указать адрес кошелька"),
+  walletAddress: z
+    .string()
+    .trim()
+    .min(1, "Необходимо указать адрес кошелька")
+    .regex(/^[A-Za-z0-9]{20,100}$/, "Некорректный адрес кошелька"),
+  agreeTerms: z.boolean().refine((v) => v === true, { message: "Необходимо согласиться с условиями обмена" }),
 });
 
 type ExchangeFormData = z.infer<typeof exchangeFormSchema>;
@@ -126,6 +132,7 @@ export function ExchangeForm() {
       amount: '',
       email: '',
       walletAddress: '',
+      agreeTerms: false,
     },
   });
 
@@ -327,7 +334,7 @@ export function ExchangeForm() {
           if (stage !== 'details') {
             e.preventDefault();
             void (async () => {
-              const ok = await trigger(['fromCurrency', 'toCurrency', 'amount']);
+              const ok = await trigger(['fromCurrency', 'toCurrency', 'amount', 'agreeTerms']);
               if (ok) setStage('details');
             })();
             return;
@@ -488,6 +495,23 @@ export function ExchangeForm() {
           </div>
         )}
 
+        <div>
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-[var(--sb-muted)]">
+            <input
+              type="checkbox"
+              {...register('agreeTerms')}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--accent)]"
+            />
+            <span>
+              Я согласен с{' '}
+              <Link href="/terms" target="_blank" className="text-[var(--foreground)] underline hover:no-underline">
+                условиями обмена
+              </Link>
+            </span>
+          </label>
+          {errors.agreeTerms && <p className="mt-1 text-xs text-red-400">{errors.agreeTerms.message}</p>}
+        </div>
+
         <button
           type={stage === 'details' ? 'submit' : 'button'}
           onClick={
@@ -495,7 +519,7 @@ export function ExchangeForm() {
               ? undefined
               : () => {
                   void (async () => {
-                    const ok = await trigger(['fromCurrency', 'toCurrency', 'amount']);
+                    const ok = await trigger(['fromCurrency', 'toCurrency', 'amount', 'agreeTerms']);
                     if (ok) setStage('details');
                   })();
                 }

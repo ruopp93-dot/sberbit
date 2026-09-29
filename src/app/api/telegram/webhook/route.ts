@@ -4,6 +4,7 @@ import { OrdersStore } from '@/lib/ordersStore';
 import { sendOrderStatusEmail } from '@/lib/email';
 import { getRates, getRateValue, loadRatesFromRedis } from '@/lib/cryptoRates';
 import exchangeRates from '@/lib/exchangeRates';
+import { safeEqual } from '@/lib/security';
 // pendingActions: Map adminChatId -> { type: 'confirm'|'cancel', orderId }
 const globalPendingKey = '__SB_TELEGRAM_PENDING_ACTIONS_V1__';
 const _g: any = (globalThis as any) || {};
@@ -17,12 +18,18 @@ if (!_g[WEBHOOK_REDIS_KEY]) {
   loadRatesFromRedis().catch(() => {});
 }
 
-// Простая проверка токена вебхука через секрет в query (?secret=...)
+// Проверка подлинности вебхука: заголовок X-Telegram-Bot-Api-Secret-Token
+// (задаётся через secret_token в setWebhook) или устаревший ?secret=... в query.
 function checkSecret(req: NextRequest) {
-  const url = new URL(req.url);
-  const secret = url.searchParams.get('secret');
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-  return expected ? secret === expected : true; // если секрета нет, пропускаем (dev)
+  if (!expected) {
+    // без секрета любой может слать поддельные апдейты — разрешаем только в dev
+    return process.env.NODE_ENV !== 'production';
+  }
+  const header = req.headers.get('x-telegram-bot-api-secret-token');
+  const query = new URL(req.url).searchParams.get('secret');
+  const provided = header || query || '';
+  return safeEqual(provided, expected);
 }
 
 async function handleShowRates(chatId: number | string) {
@@ -64,7 +71,7 @@ function isPaid(status: string) {
 
 function isAdmin(chatId?: number | string | null) {
   const admin = process.env.TELEGRAM_ADMIN_CHAT_ID;
-  if (!admin) return true; // dev mode: allow
+  if (!admin) return process.env.NODE_ENV !== 'production'; // dev mode only
   return String(chatId) === String(admin);
 }
 
@@ -311,7 +318,7 @@ export async function POST(request: NextRequest) {
       const text: string = (update.message.text || '').trim();
 
         // If admin has a pending action, treat this message as the payload (link or confirmation)
-        if (PendingActions.has(String(chatId))) {
+        if (isAdmin(chatId) && PendingActions.has(String(chatId))) {
           const pending = PendingActions.get(String(chatId))!;
     // if admin sent /skip — treat as confirm without link
           if (text === '/skip') {
@@ -325,7 +332,7 @@ export async function POST(request: NextRequest) {
           if (pending.type === 'edit_rate') {
             const currency = pending.orderId;
             const parsed = Number(String(text).replace(/[^\d,\.]/g, '').replace(',', '.'));
-            if (isNaN(parsed)) {
+            if (!text || !Number.isFinite(parsed) || parsed <= 0) {
               await bot.api.sendMessage(chatId, `Не удалось распознать число из '${text}'. Попробуйте ещё раз.`);
               return NextResponse.json({ ok: true });
             }
@@ -412,7 +419,7 @@ export async function POST(request: NextRequest) {
       const data: string = cq.data || '';
 
       // Determine whether this callback requires admin rights
-      const adminOnly = /^(menu:(orders|paid|canceled|all))|^list:|^act:/i.test(data);
+      const adminOnly = /^(menu:(orders|paid|canceled|all))|^list:|^act:|^order:|^rates:/i.test(data);
       if (adminOnly && !isAdmin(chatId)) {
         // politely acknowledge the interaction for non-admins
         if (cq.id) {
@@ -440,6 +447,9 @@ export async function POST(request: NextRequest) {
         }
       } else if (data.startsWith('rates:edit:')) {
         const currency = data.split(':')[2];
+        if (!currency || !Object.prototype.hasOwnProperty.call(getRates(), currency)) {
+          return NextResponse.json({ ok: true });
+        }
         PendingActions.set(String(chatId), { type: 'edit_rate', orderId: currency });
         await bot.api.sendMessage(chatId, `Введите новый курс (в RUB) для ${currency}, например 4200000`);
       } else if (data === 'menu:help') {

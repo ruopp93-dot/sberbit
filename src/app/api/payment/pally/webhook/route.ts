@@ -12,13 +12,27 @@ export async function POST(request: Request) {
 
   try {
     const event = JSON.parse(body);
-    const paymentId = event.payment_id;
+    const paymentId = event?.payment_id;
+
+    if (typeof paymentId !== "string" || !paymentId) {
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    }
+
+    // Ignore notifications about unsuccessful payments.
+    const eventStatus = typeof event.status === "string" ? event.status.toLowerCase() : null;
+    if (eventStatus && !["success", "succeeded", "paid", "completed"].includes(eventStatus)) {
+      return NextResponse.json({ received: true });
+    }
 
     const order = await prisma.exchangeOrder.findFirst({
       where: { paymentId },
     });
 
-    if (order && order.paymentStatus !== "paid") {
+    // Do not resurrect canceled orders and do not accept underpayments.
+    const paidAmount = event.amount != null ? Number(event.amount) : null;
+    const underpaid = paidAmount != null && (!Number.isFinite(paidAmount) || paidAmount < Number(order?.amount));
+
+    if (order && order.paymentStatus !== "paid" && order.exchangeStatus !== "canceled" && !underpaid) {
       await prisma.exchangeOrder.update({
         where: { id: order.id },
         data: {
@@ -30,7 +44,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error(error);
+    console.error("Pally webhook error:", error);
     return NextResponse.json({ error: "Webhook error" }, { status: 400 });
   }
 }

@@ -11,9 +11,10 @@ function formatUrl(origin: string, path: string) {
   return `${origin}${path}`;
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const origin = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_API_URL || (request.headers.get('host') ? `${request.headers.get('x-forwarded-proto') || 'https'}://${request.headers.get('host')}` : 'https://sberbit.vercel.app');
+    // Host header is not trusted (the response is cached by CDN → cache poisoning).
+    const origin = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_API_URL || 'https://sberbit.vercel.app').replace(/\/$/, '');
 
     const urls = STATIC_PAGES.map((p) => `  <url>\n    <loc>${formatUrl(origin, p)}</loc>\n    <changefreq>minute</changefreq>\n    <priority>0.8</priority>\n  </url>`).join('\n');
 
