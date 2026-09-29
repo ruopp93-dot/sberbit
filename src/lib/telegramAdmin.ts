@@ -1,5 +1,7 @@
-// Helpers for the Telegram admin bot: admin check, notifications, order cards.
-import { bot } from './bot';
+// Helpers for the Telegram admin bot: admin check, formatting, notifications,
+// webhook self-registration and pending admin input.
+import type { InlineKeyboardButton, InlineKeyboardMarkup } from 'grammy/types';
+import { bot, telegramApiRoot } from './bot';
 import { getRedis } from './redis';
 import { getSiteUrl } from './siteUrl';
 import type { ExchangeOrder } from './ordersStore';
@@ -17,6 +19,24 @@ export const isCanceled = (status: string) => /отмен/i.test(status);
 export const isDone = (status: string) => /выполнена/i.test(status);
 export const isPaid = (status: string) => /оплачена/i.test(status);
 export const isClientPaid = (status: string) => /сообщил об оплате/i.test(status);
+export const isNew = (status: string) =>
+  !isCanceled(status) && !isDone(status) && !isPaid(status) && !isClientPaid(status);
+
+export function statusBadge(status: string): string {
+  if (isDone(status)) return '🏁 Выполнена';
+  if (isCanceled(status)) return '🗑 Отменена';
+  if (isPaid(status)) return '💸 Оплачена, в работе';
+  if (isClientPaid(status)) return '🔔 Клиент оплатил — проверьте';
+  return '🆕 Ждёт оплаты';
+}
+
+/** Escapes text for Telegram HTML parse mode. */
+export function esc(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
 /** Chat IDs of administrators (TELEGRAM_ADMIN_CHAT_ID, comma-separated). */
 export function adminChatIds(): string[] {
@@ -38,47 +58,123 @@ export function nowStamp() {
   return `${now.toLocaleDateString('ru-RU', opts)}, ${now.toLocaleTimeString('ru-RU', { ...opts, hour: '2-digit', minute: '2-digit' })}`;
 }
 
+/** Order card in Telegram HTML. */
 export function formatOrder(o: ExchangeOrder, title = `Заявка #${o.id}`): string {
   return [
-    title,
-    `Статус: ${o.status}`,
-    `Отдаёт: ${o.fromAmount} ₽ (${o.fromCurrency})`,
-    o.fromAccount ? `Со счета: ${o.fromAccount}` : undefined,
-    `Получает: ${o.toAmount} ${o.toCurrency}`,
-    `На кошелёк: ${o.toAccount}`,
-    o.email ? `Email: ${o.email}` : undefined,
-    `Реквизиты: ${o.paymentDetails}`,
-    o.txLink ? `Транзакция: ${o.txLink}` : undefined,
-    `Создана: ${o.createdAt}`,
-    `Обновлена: ${o.lastStatusUpdate}`,
+    `<b>${esc(title)}</b>`,
+    '',
+    `Статус: <b>${statusBadge(o.status)}</b>`,
+    '',
+    `💰 Отдаёт: <b>${esc(o.fromAmount)} ₽</b> (${esc(o.fromCurrency)})`,
+    `🪙 Получает: <b>${esc(o.toAmount)} ${esc(o.toCurrency)}</b>`,
+    `👛 Кошелёк: <code>${esc(o.toAccount)}</code>`,
+    o.email ? `✉️ Email: ${esc(o.email)}` : undefined,
+    `💳 Реквизиты: ${esc(o.paymentDetails)}`,
+    o.txLink ? `🔗 Транзакция: ${esc(o.txLink)}` : undefined,
+    '',
+    `🕒 Создана: ${esc(o.createdAt)}`,
+    `✏️ Обновлена: ${esc(o.lastStatusUpdate)}`,
   ]
-    .filter(Boolean)
+    .filter((l) => l !== undefined)
     .join('\n');
 }
 
-export function orderKeyboard(o: ExchangeOrder) {
-  const rows: { text: string; callback_data?: string; url?: string }[][] = [];
+type Button = InlineKeyboardButton;
+export type InlineKeyboard = InlineKeyboardMarkup;
+
+export function orderKeyboard(o: ExchangeOrder): InlineKeyboard {
+  const rows: Button[][] = [];
   if (!isCanceled(o.status) && !isDone(o.status)) {
     if (!isPaid(o.status)) rows.push([{ text: '✅ Оплата получена', callback_data: `act:paid:${o.id}` }]);
-    rows.push([{ text: '🏁 Выполнена (указать транзакцию)', callback_data: `act:done:${o.id}` }]);
+    rows.push([{ text: '🏁 Выполнена — указать транзакцию', callback_data: `act:done:${o.id}` }]);
     rows.push([{ text: '🗑 Отменить заявку', callback_data: `act:cancel:${o.id}` }]);
   }
-  rows.push([{ text: '🔗 Открыть на сайте', url: `${getSiteUrl()}/order/${o.id}` }]);
-  rows.push([{ text: '🏠 В меню', callback_data: 'menu:main' }]);
+  rows.push([
+    { text: '🔄 Обновить', callback_data: `order:${o.id}` },
+    { text: '🌐 На сайте', url: `${getSiteUrl()}/order/${o.id}` },
+  ]);
+  rows.push([{ text: '🏠 Главное меню', callback_data: 'menu:main' }]);
   return { inline_keyboard: rows };
 }
 
-/** Sends a message to every admin; errors are logged, never thrown. */
-export async function notifyAdmins(text: string, replyMarkup?: unknown): Promise<void> {
+/** Sends a message (HTML) to every admin; errors are logged, never thrown. */
+export async function notifyAdmins(text: string, replyMarkup?: InlineKeyboard): Promise<void> {
+  await ensureWebhook().catch(() => {});
   await Promise.all(
     adminChatIds().map(async (chatId) => {
       try {
-        await bot.api.sendMessage(chatId, text, replyMarkup ? { reply_markup: replyMarkup as never } : undefined);
+        await bot.api.sendMessage(chatId, text, {
+          parse_mode: 'HTML',
+          link_preview_options: { is_disabled: true },
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+        });
       } catch (e) {
         console.warn('Telegram notify failed:', e);
       }
     })
   );
+}
+
+// ─── Webhook self-registration ───────────────────────────────────────────────
+// The webhook must point to this site with our secret_token, otherwise button
+// presses never reach us. Checked at most every 10 minutes per instance and
+// re-registered when the URL differs or Telegram reports delivery errors.
+const WEBHOOK_CHECK_MS = 10 * 60 * 1000;
+const _w = globalThis as unknown as Record<string, number>;
+const lastCheckKey = '__SB_TG_WEBHOOK_CHECKED__';
+
+export type WebhookStatus = {
+  ok: boolean;
+  url?: string;
+  expectedUrl?: string;
+  reRegistered?: boolean;
+  pendingUpdates?: number;
+  lastError?: string;
+  error?: string;
+};
+
+export async function ensureWebhook(force = false): Promise<WebhookStatus> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { ok: false, error: 'TELEGRAM_BOT_TOKEN не задан' };
+  const site = getSiteUrl();
+  if (!site.startsWith('https://')) return { ok: false, error: 'Нужен публичный https-адрес сайта' };
+  if (!force && Date.now() - (_w[lastCheckKey] || 0) < WEBHOOK_CHECK_MS) return { ok: true };
+  _w[lastCheckKey] = Date.now();
+
+  const api = `${telegramApiRoot()}/bot${token}`;
+  const expectedUrl = `${site}/api/telegram/webhook`;
+  const info = await (await fetch(`${api}/getWebhookInfo`, { cache: 'no-store' })).json();
+  const current: string = info?.result?.url || '';
+  const recentError =
+    info?.result?.last_error_date && Date.now() / 1000 - info.result.last_error_date < WEBHOOK_CHECK_MS / 1000;
+
+  let reRegistered = false;
+  if (force || current !== expectedUrl || recentError) {
+    const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const res = await (
+      await fetch(`${api}/setWebhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: expectedUrl,
+          allowed_updates: ['message', 'callback_query'],
+          ...(secret ? { secret_token: secret } : {}),
+        }),
+      })
+    ).json();
+    if (!res?.ok) return { ok: false, url: current, expectedUrl, error: res?.description || 'setWebhook failed' };
+    reRegistered = true;
+    console.log('[Telegram] Webhook registered:', expectedUrl);
+  }
+
+  return {
+    ok: true,
+    url: current.replace(/\?.*$/, ''),
+    expectedUrl,
+    reRegistered,
+    pendingUpdates: info?.result?.pending_update_count,
+    lastError: info?.result?.last_error_message,
+  };
 }
 
 // ─── Pending admin input (stored in Redis: the next message may hit another instance) ───
