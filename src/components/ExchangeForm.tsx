@@ -72,6 +72,9 @@ const exchangeFormSchema = z.object({
     .min(1, "Необходимо указать адрес кошелька")
     .regex(/^[A-Za-z0-9]{20,100}$/, "Некорректный адрес кошелька"),
   agreeTerms: z.boolean().refine((v) => v === true, { message: "Необходимо согласиться с условиями обмена" }),
+  agreePersonalData: z
+    .boolean()
+    .refine((v) => v === true, { message: "Необходимо дать согласие на обработку персональных данных" }),
 });
 
 type ExchangeFormData = z.infer<typeof exchangeFormSchema>;
@@ -133,6 +136,7 @@ export function ExchangeForm() {
       email: '',
       walletAddress: '',
       agreeTerms: false,
+      agreePersonalData: false,
     },
   });
 
@@ -308,7 +312,7 @@ export function ExchangeForm() {
           if (stage !== 'details') {
             e.preventDefault();
             void (async () => {
-              const ok = await trigger(['fromCurrency', 'toCurrency', 'amount', 'agreeTerms']);
+              const ok = await trigger(['fromCurrency', 'toCurrency', 'amount', 'agreeTerms', 'agreePersonalData']);
               if (ok) setStage('details');
             })();
             return;
@@ -479,11 +483,34 @@ export function ExchangeForm() {
             <span>
               Я согласен с{' '}
               <Link href="/terms" target="_blank" className="text-[var(--foreground)] underline hover:no-underline">
-                условиями обмена
+                пользовательским соглашением
               </Link>
             </span>
           </label>
           {errors.agreeTerms && <p className="mt-1 text-xs text-red-400">{errors.agreeTerms.message}</p>}
+        </div>
+
+        <div>
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-[var(--sb-muted)]">
+            <input
+              type="checkbox"
+              {...register('agreePersonalData')}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--accent)]"
+            />
+            <span>
+              Я даю согласие на{' '}
+              <Link
+                href="/terms#personal-data"
+                target="_blank"
+                className="text-[var(--foreground)] underline hover:no-underline"
+              >
+                обработку персональных данных
+              </Link>
+            </span>
+          </label>
+          {errors.agreePersonalData && (
+            <p className="mt-1 text-xs text-red-400">{errors.agreePersonalData.message}</p>
+          )}
         </div>
 
         <button
@@ -493,7 +520,7 @@ export function ExchangeForm() {
               ? undefined
               : () => {
                   void (async () => {
-                    const ok = await trigger(['fromCurrency', 'toCurrency', 'amount', 'agreeTerms']);
+                    const ok = await trigger(['fromCurrency', 'toCurrency', 'amount', 'agreeTerms', 'agreePersonalData']);
                     if (ok) setStage('details');
                   })();
                 }

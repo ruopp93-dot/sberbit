@@ -26,6 +26,7 @@ const exchangeSchema = z.object({
   captchaToken: z.string().min(1).max(200),
   captchaAnswer: z.string().min(1).max(10),
   agreeTerms: z.literal(true, { message: "Необходимо согласиться с условиями обмена" }),
+  agreePersonalData: z.literal(true, { message: "Необходимо дать согласие на обработку персональных данных" }),
 });
 
 export async function POST(request: Request) {
