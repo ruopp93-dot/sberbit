@@ -22,6 +22,7 @@ import {
   orderKeyboard,
   setPending,
   statusBadge,
+  webhookSecret,
   type InlineKeyboard,
 } from '@/lib/telegramAdmin';
 
@@ -32,7 +33,7 @@ const SUPPORT_URL = 'https://t.me/SberBitsupport';
 // Подлинность запроса: Telegram присылает secret_token из setWebhook в заголовке.
 // ?secret=... в адресе — устаревший способ регистрации, тоже принимаем.
 function checkSecret(req: NextRequest) {
-  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const expected = webhookSecret();
   if (!expected) return process.env.NODE_ENV !== 'production'; // без секрета — только dev
   const provided =
     req.headers.get('x-telegram-bot-api-secret-token') || new URL(req.url).searchParams.get('secret') || '';

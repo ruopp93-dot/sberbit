@@ -1,5 +1,6 @@
 // Helpers for the Telegram admin bot: admin check, formatting, notifications,
 // webhook self-registration and pending admin input.
+import { createHash } from 'crypto';
 import type { InlineKeyboardButton, InlineKeyboardMarkup } from 'grammy/types';
 import { bot, telegramApiRoot } from './bot';
 import { getRedis } from './redis';
@@ -115,6 +116,21 @@ export async function notifyAdmins(text: string, replyMarkup?: InlineKeyboard): 
   );
 }
 
+// ─── Webhook secret ──────────────────────────────────────────────────────────
+/**
+ * Secret that Telegram sends in X-Telegram-Bot-Api-Secret-Token. Uses
+ * TELEGRAM_WEBHOOK_SECRET when set; otherwise it is derived from the bot token,
+ * so the variable is optional. Telegram only allows [A-Za-z0-9_-], so any other
+ * value is hashed.
+ */
+export function webhookSecret(): string | null {
+  const env = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+  if (env) return /^[A-Za-z0-9_-]{1,256}$/.test(env) ? env : createHash('sha256').update(env).digest('hex');
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+  return createHash('sha256').update(`sberbits-webhook:${token}`).digest('hex');
+}
+
 // ─── Webhook self-registration ───────────────────────────────────────────────
 // The webhook must point to this site with our secret_token, otherwise button
 // presses never reach us. Checked at most every 10 minutes per instance and
@@ -150,7 +166,7 @@ export async function ensureWebhook(force = false): Promise<WebhookStatus> {
 
   let reRegistered = false;
   if (force || current !== expectedUrl || recentError) {
-    const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const secret = webhookSecret();
     const res = await (
       await fetch(`${api}/setWebhook`, {
         method: 'POST',

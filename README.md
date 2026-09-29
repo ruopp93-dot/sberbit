@@ -22,12 +22,12 @@
 3. **Добавьте переменные** в Settings → Environment Variables (Production):
    - `TELEGRAM_BOT_TOKEN` — токен от @BotFather;
    - `TELEGRAM_ADMIN_CHAT_ID` — ваш chat id (@userinfobot), несколько — через запятую;
-   - `TELEGRAM_WEBHOOK_SECRET` — случайная строка (`openssl rand -hex 32`).
+   - `TELEGRAM_WEBHOOK_SECRET` — необязательно: без неё секрет вебхука выводится из токена бота.
 4. **Redeploy.** При запуске сайт сам регистрирует вебхук бота на свой адрес `*.vercel.app`.
 5. Напишите боту `/start` — откроется панель администратора.
 
 Если бот не реагирует на кнопки, откройте
-`https://<ваш-проект>.vercel.app/api/telegram/setup?key=<TELEGRAM_WEBHOOK_SECRET>` —
+`https://<ваш-проект>.vercel.app/api/telegram/setup` —
 вебхук будет перерегистрирован, в ответе будет его текущее состояние и последняя ошибка.
 Сайт также сам проверяет вебхук при открытии страниц и при отправке уведомлений.
 

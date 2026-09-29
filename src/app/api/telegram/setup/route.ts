@@ -1,20 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ensureWebhook } from '@/lib/telegramAdmin';
-import { safeEqual } from '@/lib/security';
+import { getClientIp, rateLimit } from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
 
-// Ручная перерегистрация вебхука бота и диагностика:
-// https://<сайт>/api/telegram/setup?key=<TELEGRAM_WEBHOOK_SECRET>
+// Перерегистрация вебхука бота и диагностика: откройте https://<сайт>/api/telegram/setup
+// Безопасно без ключа: адрес и секрет берутся только из настроек сервера.
 export async function GET(req: NextRequest) {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  const key = req.nextUrl.searchParams.get('key') || '';
-  if (!secret || !safeEqual(key, secret)) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  if (!(await rateLimit(`tg-setup:${getClientIp(req)}`, 5, 10 * 60 * 1000))) {
+    return NextResponse.json({ ok: false, error: 'Слишком много запросов' }, { status: 429 });
   }
   try {
     const status = await ensureWebhook(true);
-    return NextResponse.json(status, { status: status.ok ? 200 : 500 });
+    return NextResponse.json(
+      {
+        ok: status.ok,
+        webhook: status.expectedUrl,
+        reRegistered: status.reRegistered,
+        previousUrl: status.url,
+        pendingUpdates: status.pendingUpdates,
+        lastError: status.lastError,
+        error: status.error,
+      },
+      { status: status.ok ? 200 : 500 }
+    );
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
