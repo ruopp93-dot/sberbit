@@ -183,8 +183,6 @@ export function ExchangeForm() {
         body: JSON.stringify({
           ...data,
           amount: normalizedAmount,
-          estimatedAmount: estimate.amount,
-          exchangeRate: estimate.rate,
           captchaToken,
           captchaAnswer: String(captchaAnswer).trim()
         }),
@@ -213,30 +211,6 @@ export function ExchangeForm() {
           throw new Error(result.message || '\u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0440\u0438 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u0438 \u0437\u0430\u044f\u0432\u043a\u0438');
       }
 
-      // Сохраняем заказ в localStorage как резервную копию на случай перезапуска сервера
-      try {
-        const cryptoKey = (data.toCurrency || '').split('-')[0];
-        const serverOrder = result.order;
-        if (serverOrder) {
-          localStorage.setItem(`order:${serverOrder.id}`, JSON.stringify(serverOrder));
-        } else {
-          const backupOrder = {
-            id: result.orderId as string,
-            status: 'Принята, ожидает оплаты клиентом',
-            fromAmount: normalizedAmount,
-            fromCurrency: data.fromCurrency,
-            toAmount: estimate.amount,
-            toCurrency: cryptoKey + (data.toCurrency.includes('-') ? ` ${data.toCurrency.split('-')[1]}` : ''),
-            toAccount: data.walletAddress,
-            paymentDetails: '2204 1201 3018 1643',
-            createdAt: new Date().toLocaleDateString('ru-RU'),
-            lastStatusUpdate: new Date().toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-          };
-          localStorage.setItem(`order:${result.orderId}`, JSON.stringify(backupOrder));
-        }
-      } catch {
-        // ignore localStorage errors
-      }
 
       // Перенаправляем на страницу заявки
       window.location.href = `/order/${result.orderId}`;

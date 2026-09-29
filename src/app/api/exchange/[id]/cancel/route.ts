@@ -1,86 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { bot } from '@/lib/bot';
 import { OrdersStore } from '@/lib/ordersStore';
 import { sendOrderStatusEmail } from '@/lib/email';
+import { getSiteUrl } from '@/lib/siteUrl';
 import { getClientIp, rateLimit } from '@/lib/security';
+import {
+  STATUS,
+  formatOrder,
+  isCanceled,
+  isClientPaid,
+  isDone,
+  isPaid,
+  notifyAdmins,
+  nowStamp,
+} from '@/lib/telegramAdmin';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  if (!rateLimit(`order-action:${getClientIp(request)}`, 10, 10 * 60 * 1000)) {
+  if (!(await rateLimit(`order-action:${getClientIp(request)}`, 10, 10 * 60 * 1000))) {
     return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 });
   }
 
   try {
     const { id } = await context.params;
-    const existing = OrdersStore.get(id);
+    const existing = await OrdersStore.get(id);
     if (!existing) {
-      return NextResponse.json(
-        { error: 'Заявка не найдена', details: `Заявка с ID ${id} не существует` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Заявка не найдена' }, { status: 404 });
     }
 
-    // Нельзя отменить уже отменённую или оплаченную заявку
-    if (/отмен/i.test(existing.status) || /оплачена/i.test(existing.status)) {
-      return NextResponse.json(
-        { error: 'Статус заявки не позволяет её отменить' },
-        { status: 409 }
-      );
+    // Нельзя отменить закрытую заявку или заявку, по которой уже заявлена оплата
+    if (isCanceled(existing.status) || isDone(existing.status) || isPaid(existing.status) || isClientPaid(existing.status)) {
+      return NextResponse.json({ error: 'Статус заявки не позволяет её отменить' }, { status: 409 });
     }
 
-    const now = new Date();
-    const updated = {
-      ...existing,
-      status: 'Заявка отменена пользователем',
-      lastStatusUpdate: `${now.toLocaleDateString('ru-RU')}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`,
-    };
-    OrdersStore.save(updated);
+    const updated = { ...existing, status: STATUS.canceledByUser, lastStatusUpdate: nowStamp() };
+    await OrdersStore.save(updated);
 
-    const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
-    if (chatId) {
-      const text = [
-        '❌ Пользователь отменил заявку',
-        `#${id}`,
-        `Отдавал: ${updated.fromAmount} ${updated.fromCurrency}`,
-        updated.fromAccount ? `Со счета: ${updated.fromAccount}` : undefined,
-        `Получал: ${updated.toAmount} ${updated.toCurrency}`,
-        `На счет: ${updated.toAccount}`,
-      ].filter(Boolean).join('\n');
-      await bot.api.sendMessage(chatId, text);
-    }
+    await notifyAdmins(formatOrder(updated, `❌ Клиент отменил заявку #${id}`));
 
-    // Email пользователю об отмене
     try {
-      await sendOrderStatusEmail(
-        updated.email,
-        `Заявка #${updated.id}: отменена пользователем`,
-        {
-          id: updated.id,
-          status: updated.status,
-          email: updated.email || undefined,
-          fromAmount: updated.fromAmount,
-          fromCurrency: updated.fromCurrency,
-          toAmount: updated.toAmount,
-          toCurrency: updated.toCurrency,
-          toAccount: updated.toAccount,
-          createdAt: updated.createdAt,
-          lastStatusUpdate: updated.lastStatusUpdate,
-          paymentDetails: updated.paymentDetails,
-          siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
-        }
-      );
+      await sendOrderStatusEmail(updated.email, `Заявка #${updated.id}: отменена`, { ...updated, siteUrl: getSiteUrl() });
     } catch (e) {
       console.warn('Не удалось отправить email об отмене заявки:', e);
     }
 
-    return NextResponse.json({ success: true, order: updated });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { email, ...publicOrder } = updated;
+    return NextResponse.json({ success: true, order: publicOrder });
   } catch (error) {
     console.error('Ошибка при отмене заявки:', error);
-    return NextResponse.json(
-      { error: 'Ошибка при отмене заявки' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Ошибка при отмене заявки' }, { status: 500 });
   }
 }

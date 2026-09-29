@@ -12,6 +12,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  async rewrites() {
+    return [{ source: "/sitemap.xml", destination: "/api/sitemap.xml" }];
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

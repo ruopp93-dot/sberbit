@@ -14,6 +14,7 @@ export type OrderEmailPayload = {
   createdAt?: string;
   lastStatusUpdate?: string;
   paymentDetails?: string;
+  txLink?: string;
   siteUrl?: string;
 };
 
@@ -66,6 +67,7 @@ export async function sendOrderStatusEmail(
       `Получаете: ${payload.toAmount} ${payload.toCurrency}`,
       `На счет: ${payload.toAccount}`,
       payload.paymentDetails ? `Реквизиты для оплаты: ${payload.paymentDetails}` : undefined,
+      payload.txLink ? `Транзакция: ${payload.txLink}` : undefined,
       payload.createdAt ? `Создана: ${payload.createdAt}` : undefined,
       payload.lastStatusUpdate ? `Время изменения статуса: ${payload.lastStatusUpdate}` : undefined,
       orderUrl ? `Страница заявки: ${orderUrl}` : undefined,
@@ -82,6 +84,7 @@ export async function sendOrderStatusEmail(
           <li><strong>Получаете:</strong> ${escapeHtml(payload.toAmount)} ${escapeHtml(payload.toCurrency)}</li>
           <li><strong>На счет:</strong> ${escapeHtml(payload.toAccount)}</li>
           ${payload.paymentDetails ? `<li><strong>Реквизиты для оплаты:</strong> ${escapeHtml(payload.paymentDetails)}</li>` : ''}
+          ${payload.txLink ? `<li><strong>Транзакция:</strong> ${escapeHtml(payload.txLink)}</li>` : ''}
           ${payload.createdAt ? `<li><strong>Создана:</strong> ${escapeHtml(payload.createdAt)}</li>` : ''}
           ${payload.lastStatusUpdate ? `<li><strong>Изменена:</strong> ${escapeHtml(payload.lastStatusUpdate)}</li>` : ''}
         </ul>

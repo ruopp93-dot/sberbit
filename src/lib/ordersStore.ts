@@ -1,3 +1,6 @@
+import { randomInt } from 'crypto';
+import { getRedis } from './redis';
+
 export interface ExchangeOrder {
   id: string;
   status: string;
@@ -8,35 +11,61 @@ export interface ExchangeOrder {
   toAccount: string; // адрес кошелька пользователя
   paymentDetails: string; // реквизиты для оплаты (системные)
   createdAt: string;
+  createdAtTs: number;
   lastStatusUpdate: string;
   // необязательное поле, если пользователь не вводил реквизиты отправителя
   fromAccount?: string;
   email?: string;
-  paymentPhone?: string;
-  paymentRecipient?: string;
-  paymentBank?: string;
+  txLink?: string; // ссылка/хэш транзакции отправки крипты (заполняет админ)
 }
 
-// keep orders Map on globalThis so it survives HMR in dev
-const globalKey = '__SB_ORDERS_STORE_V1__';
-const _g: any = (globalThis as any) || {};
+const ORDER_TTL_SEC = 60 * 60 * 24 * 90; // заявки хранятся 90 дней
+const INDEX_KEY = 'sb:orders';
+const orderKey = (id: string) => `sb:order:${id}`;
+
+// in-memory fallback for local development without Redis
+const globalKey = '__SB_ORDERS_STORE_V2__';
+const _g = globalThis as unknown as Record<string, Map<string, ExchangeOrder>>;
 if (!_g[globalKey]) _g[globalKey] = new Map<string, ExchangeOrder>();
-const orders: Map<string, ExchangeOrder> = _g[globalKey];
+const mem = _g[globalKey];
+
+function isValidId(id: string) {
+  return /^\d{6,20}$/.test(id);
+}
 
 export const OrdersStore = {
-  save(order: ExchangeOrder) {
-    orders.set(order.id, order);
+  /** Случайный 12-значный ID: последовательные ID позволяли перебирать чужие заявки. */
+  newId(): string {
+    return String(randomInt(100_000_000_000, 999_999_999_999));
   },
-  get(id: string) {
-    return orders.get(id) || null;
+
+  async save(order: ExchangeOrder): Promise<void> {
+    const redis = getRedis();
+    if (!redis) {
+      mem.set(order.id, order);
+      return;
+    }
+    await redis.set(orderKey(order.id), order, { ex: ORDER_TTL_SEC });
+    await redis.zadd(INDEX_KEY, { score: order.createdAtTs, member: order.id });
   },
-  has(id: string) {
-    return orders.has(id);
+
+  async get(id: string): Promise<ExchangeOrder | null> {
+    if (!isValidId(id)) return null;
+    const redis = getRedis();
+    if (!redis) return mem.get(id) ?? null;
+    return (await redis.get<ExchangeOrder>(orderKey(id))) ?? null;
   },
-  all(): ExchangeOrder[] {
-    return Array.from(orders.values());
+
+  /** Последние заявки, новые первыми. */
+  async all(limit = 500): Promise<ExchangeOrder[]> {
+    const redis = getRedis();
+    if (!redis) {
+      return Array.from(mem.values()).sort((a, b) => b.createdAtTs - a.createdAtTs).slice(0, limit);
+    }
+    await redis.zremrangebyscore(INDEX_KEY, 0, Date.now() - ORDER_TTL_SEC * 1000);
+    const ids = await redis.zrange<string[]>(INDEX_KEY, 0, limit - 1, { rev: true });
+    if (!ids.length) return [];
+    const orders = await redis.mget<(ExchangeOrder | null)[]>(...ids.map((id) => orderKey(String(id))));
+    return orders.filter((o): o is ExchangeOrder => !!o);
   },
-  listBy(fn: (o: ExchangeOrder) => boolean): ExchangeOrder[] {
-    return Array.from(orders.values()).filter(fn);
-  }
 };
