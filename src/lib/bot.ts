@@ -8,10 +8,15 @@ let botInstance: SimpleBot;
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
+/** Telegram Bot API base URL (overridable for a self-hosted Bot API server or tests). */
+export function telegramApiRoot(): string {
+  return (process.env.TELEGRAM_API_ROOT || 'https://api.telegram.org').replace(/\/$/, '');
+}
+
 if (token) {
   // Create a Bot instance without starting long polling.
   // We only use the Bot API (bot.api.sendMessage) from server routes.
-  botInstance = new Bot(token) as unknown as SimpleBot;
+  botInstance = new Bot(token, { client: { apiRoot: telegramApiRoot() } }) as unknown as SimpleBot;
 } else {
   // Fallback no-op api to avoid runtime crashes when env vars are absent.
   const noopApi: Partial<Api> = {

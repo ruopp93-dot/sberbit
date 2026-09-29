@@ -1,67 +1,62 @@
-// Simple in-memory captcha store for dev/testing.
-// Each challenge has a token, question and numeric answer and expires after TTL.
-import { randomUUID } from 'crypto';
+// Stateless arithmetic captcha: the answer is bound to an HMAC-signed token, so
+// it works across Vercel serverless instances. Redis (when configured) tracks
+// attempts and one-time use; without Redis an in-memory map is used (dev).
+import { createHmac, randomInt, randomUUID } from 'crypto';
+import { getRedis } from './redis';
+import { safeEqual } from './security';
 
-type CaptchaEntry = { answer: string; expiresAt: number; question: string; attemptsLeft: number };
-
-// Keep store on globalThis to survive module reloads in dev (HMR / turbopack)
-const globalKey = '__SB_CAPTCHA_STORE_V1__';
-const _global: any = (globalThis as any) || {};
-if (!_global[globalKey]) {
-  _global[globalKey] = new Map<string, CaptchaEntry>();
-}
-const store: Map<string, CaptchaEntry> = _global[globalKey];
 const TTL_MS = 1000 * 60 * 5; // 5 minutes
+const MAX_ATTEMPTS = 3;
+
+const fallbackSecret = randomUUID();
+function secret() {
+  return process.env.APP_SECRET || process.env.TELEGRAM_BOT_TOKEN || fallbackSecret;
+}
+
+function sign(exp: string, nonce: string, answer: string) {
+  return createHmac('sha256', secret()).update(`captcha.${exp}.${nonce}.${answer}`).digest('hex');
+}
+
+const _g = globalThis as unknown as Record<string, Map<string, number>>;
+const memKey = '__SB_CAPTCHA_ATTEMPTS_V2__';
+if (!_g[memKey]) _g[memKey] = new Map<string, number>();
+const memAttempts = _g[memKey];
+
+/** Counts an attempt; returns false once the token is used up (too many tries or already solved). */
+async function registerAttempt(nonce: string, success: boolean): Promise<boolean> {
+  const ttlSec = Math.ceil(TTL_MS / 1000);
+  const redis = getRedis();
+  if (redis) {
+    const key = `sb:captcha:${nonce}`;
+    const n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, ttlSec);
+    if (n > MAX_ATTEMPTS) return false;
+    if (success) await redis.set(key, MAX_ATTEMPTS + 1, { ex: ttlSec }); // one-time use
+    return true;
+  }
+  if (memAttempts.size > 10_000) memAttempts.clear();
+  const n = (memAttempts.get(nonce) ?? 0) + 1;
+  memAttempts.set(nonce, success ? MAX_ATTEMPTS + 1 : n);
+  return n <= MAX_ATTEMPTS;
+}
 
 export const CaptchaStore = {
   create(): { token: string; question: string } {
-    // simple addition captcha
-    const a = Math.floor(Math.random() * 9) + 1;
-    const b = Math.floor(Math.random() * 9) + 1;
-    const answer = String(a + b);
-    const question = `${a} + ${b} = ?`;
-    const token = randomUUID();
-    // allow a small number of attempts for user typos
-    store.set(token, { answer, question, expiresAt: Date.now() + TTL_MS, attemptsLeft: 3 });
-    return { token, question };
+    const a = randomInt(1, 10);
+    const b = randomInt(1, 10);
+    const exp = String(Date.now() + TTL_MS);
+    const nonce = randomUUID();
+    return { token: `${exp}.${nonce}.${sign(exp, nonce, String(a + b))}`, question: `${a} + ${b} = ?` };
   },
-  validate(token?: string, answer?: string) {
-    // treat missing token or explicitly null/undefined answer as invalid
+
+  async validate(token?: string, answer?: string): Promise<boolean> {
     if (!token || answer == null) return false;
-    const entry = store.get(token);
-    if (!entry) return false;
-    if (Date.now() > entry.expiresAt) {
-      store.delete(token);
-      return false;
-    }
-    // normalize provided answer to string and trim whitespace
+    const [exp, nonce, sig] = token.split('.');
+    if (!exp || !nonce || !sig || !(Number(exp) > Date.now())) return false;
     const cleaned = String(answer).trim();
-    // numeric comparison is more forgiving (handles '7' vs 7)
-    const ok = Number(entry.answer) === Number(cleaned);
-    if (ok) {
-      // success: consume token
-      store.delete(token);
-      return true;
-    }
-    // wrong answer: decrement attempts and only delete when exhausted
-    entry.attemptsLeft = (entry.attemptsLeft ?? 1) - 1;
-    if (entry.attemptsLeft <= 0) {
-      store.delete(token);
-      console.warn(`Captcha token ${token} exhausted attempts`);
-    } else {
-      // update remaining attempts
-      store.set(token, entry);
-      console.warn(`Captcha token ${token} wrong answer, attempts left: ${entry.attemptsLeft} (provided: '${cleaned}')`);
-    }
-    return false;
-  }
-  ,
-  // debug helper: return a safe copy of the entry for diagnostics (returns undefined if not found)
-  peek(token?: string) {
-    if (!token) return undefined;
-    const entry = store.get(token);
-    if (!entry) return undefined;
-    // return a shallow copy (including answer) for server-side debugging only
-    return { question: entry.question, answer: entry.answer, expiresAt: entry.expiresAt, attemptsLeft: entry.attemptsLeft };
-  }
+    if (!/^\d{1,3}$/.test(cleaned)) return false;
+    const ok = safeEqual(sign(exp, nonce, String(Number(cleaned))), sig);
+    const allowed = await registerAttempt(nonce, ok);
+    return ok && allowed;
+  },
 };

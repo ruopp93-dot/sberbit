@@ -1,60 +1,39 @@
-// Next.js instrumentation hook — runs once on server startup.
-// Automatically registers the Telegram webhook and sets bot commands menu.
+// Next.js instrumentation hook — runs once on server (cold) start.
+// Registers the Telegram webhook on the site's own URL (the *.vercel.app address
+// when no custom domain is configured) and sets the bot commands menu.
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
-
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-  if (!token || !siteUrl) {
-    console.warn('[Telegram] Skipping webhook registration: TELEGRAM_BOT_TOKEN or NEXT_PUBLIC_SITE_URL not set.');
+  if (!token) {
+    console.warn('[Telegram] Skipping webhook registration: TELEGRAM_BOT_TOKEN not set.');
     return;
   }
 
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  const webhookUrl = secret
-    ? `${siteUrl.replace(/\/$/, '')}/api/telegram/webhook?secret=${encodeURIComponent(secret)}`
-    : `${siteUrl.replace(/\/$/, '')}/api/telegram/webhook`;
-
-  // Register webhook
+  const { ensureWebhook } = await import('./lib/telegramAdmin');
+  const { telegramApiRoot } = await import('./lib/bot');
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: webhookUrl }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      console.log('[Telegram] Webhook registered:', webhookUrl);
-    } else {
-      console.warn('[Telegram] Webhook registration failed:', data);
-    }
+    const status = await ensureWebhook(true);
+    if (!status.ok) console.warn('[Telegram] Webhook registration failed:', status.error);
   } catch (e) {
     console.warn('[Telegram] Failed to register webhook:', e);
   }
 
-  // Set bot commands menu (shows up as the "Menu" button in Telegram)
   try {
     const commands = [
-      { command: 'start', description: 'Главное меню' },
-      { command: 'orders', description: 'Активные заявки' },
-      { command: 'paid', description: 'Оплаченные заявки' },
-      { command: 'canceled', description: 'Отменённые заявки' },
-      { command: 'all', description: 'Все заявки' },
-      { command: 'rates', description: 'Курсы криптовалют' },
-      { command: 'req', description: 'Реквизиты для оплаты' },
-      { command: 'help', description: 'Справка' },
+      { command: 'start', description: '🏠 Главное меню' },
+      { command: 'orders', description: '📋 Заявки' },
+      { command: 'rates', description: '📈 Курсы' },
+      { command: 'req', description: '💳 Реквизиты' },
+      { command: 'stats', description: '📊 Статистика' },
+      { command: 'help', description: '❓ Помощь' },
     ];
-    const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    const res = await fetch(`${telegramApiRoot()}/bot${token}/setMyCommands`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commands }),
     });
     const data = await res.json();
-    if (data.ok) {
-      console.log('[Telegram] Bot commands set.');
-    } else {
-      console.warn('[Telegram] Failed to set bot commands:', data);
-    }
+    if (!data.ok) console.warn('[Telegram] Failed to set bot commands:', data);
   } catch (e) {
     console.warn('[Telegram] Failed to set bot commands:', e);
   }

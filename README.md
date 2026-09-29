@@ -1,75 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SberBits
 
-## Getting Started
+Сайт обмена рублей на криптовалюту (Next.js). Работает на Vercel без своего домена,
+всё управление — через Telegram-бота.
 
-First, run the development server:
+## Как это устроено
+
+- **Сайт** — форма обмена, страница заявки, курсы, инструкции.
+- **Хранилище** — Upstash Redis: заявки (90 дней), курсы, реквизиты, служебные данные.
+- **Админка** — Telegram-бот:
+  - уведомления о новых заявках и об оплате от клиента, с кнопками действий;
+  - списки заявок (активные / оплаченные / выполненные / отменённые / все), поиск по номеру;
+  - смена статуса: «Оплата получена», «Выполнена» (со ссылкой на транзакцию), «Отменить»;
+  - курсы: автоматически с биржи или вручную по каждой валюте;
+  - реквизиты для оплаты, которые видят клиенты.
+
+## Развёртывание на Vercel
+
+1. **Импортируйте репозиторий** в Vercel (Add New → Project). Настройки сборки по умолчанию.
+2. **Подключите Redis:** Storage → Create Database → Upstash (Redis) → Connect to Project.
+   Переменные `KV_REST_API_URL` и `KV_REST_API_TOKEN` добавятся сами.
+3. **Добавьте переменные** в Settings → Environment Variables (Production):
+   - `TELEGRAM_BOT_TOKEN` — токен от @BotFather;
+   - `TELEGRAM_ADMIN_CHAT_ID` — ваш chat id (@userinfobot), несколько — через запятую;
+   - `TELEGRAM_WEBHOOK_SECRET` — необязательно: без неё секрет вебхука выводится из токена бота.
+4. **Redeploy.** При запуске сайт сам регистрирует вебхук бота на свой адрес `*.vercel.app`.
+5. Напишите боту `/start` — откроется панель администратора.
+
+Если бот не реагирует на кнопки, откройте
+`https://<ваш-проект>.vercel.app/api/telegram/setup` —
+вебхук будет перерегистрирован, в ответе будет его текущее состояние и последняя ошибка.
+Сайт также сам проверяет вебхук при открытии страниц и при отправке уведомлений.
+
+Необязательные переменные (реквизиты по умолчанию, курсы по умолчанию, SMTP для писем
+клиентам, свой домен) описаны в `.env.example`.
+
+## Локальный запуск
 
 ```bash
+npm install
+cp .env.example .env.local   # заполните при необходимости
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-
-## Email notifications (SMTP)
-
-The app can send emails to users on order status changes. This is optional and is enabled when SMTP environment variables are set.
-
-Set the following env vars (e.g. in `.env.local`):
-
-```
-SMTP_HOST=your.smtp.host
-SMTP_PORT=587
-SMTP_USER=your_smtp_username
-SMTP_PASS=your_smtp_password
-SMTP_SECURE=false # set to true if you use port 465
-FROM_EMAIL=Support <support@example.com>
-NEXT_PUBLIC_SITE_URL=https://your-site.example
-```
-
-Notes:
-
-- The implementation uses dynamic import of `nodemailer`. If `nodemailer` is not installed or SMTP is not configured, email sending is skipped gracefully.
-- To enable real sending, install nodemailer in your project:
-
-```
-npm install nodemailer
-```
-
-- Emails are sent on:
-  - Order creation (`POST /api/exchange`)
-  - Payment confirmation by user (`POST /api/exchange/[id]/confirm`)
-  - Order cancellation by user (`POST /api/exchange/[id]/cancel`)
-  - Admin actions in Telegram bot (confirm/cancel)
-
-Environment variables also used by Telegram bot:
-
-```
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_ADMIN_CHAT_ID=...
-TELEGRAM_WEBHOOK_SECRET=optional-secret
-```
+Без Redis данные хранятся в памяти процесса (только для разработки). Вебхук Telegram
+требует публичный https-адрес, поэтому локально бот не регистрируется.

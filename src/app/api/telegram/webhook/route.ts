@@ -1,481 +1,495 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { bot } from '@/lib/bot';
-import { OrdersStore } from '@/lib/ordersStore';
+import { OrdersStore, type ExchangeOrder } from '@/lib/ordersStore';
 import { sendOrderStatusEmail } from '@/lib/email';
-import { getRates, getRateValue, loadRatesFromRedis } from '@/lib/cryptoRates';
-import exchangeRates from '@/lib/exchangeRates';
-// pendingActions: Map adminChatId -> { type: 'confirm'|'cancel', orderId }
-const globalPendingKey = '__SB_TELEGRAM_PENDING_ACTIONS_V1__';
-const _g: any = (globalThis as any) || {};
-if (!_g[globalPendingKey]) _g[globalPendingKey] = new Map<string, { type: string; orderId: string }>();
-const PendingActions: Map<string, { type: string; orderId: string }> = _g[globalPendingKey];
+import { CURRENCIES, getRates, getRateValue, resetToAutoRates, setManualRate } from '@/lib/cryptoRates';
+import { getPaymentDetails, setPaymentDetails } from '@/lib/settings';
+import { getSiteUrl } from '@/lib/siteUrl';
+import { safeEqual } from '@/lib/security';
+import {
+  STATUS,
+  clearPending,
+  esc,
+  formatOrder,
+  getPending,
+  isAdmin,
+  isCanceled,
+  isClientPaid,
+  isDone,
+  isNew,
+  isPaid,
+  nowStamp,
+  orderKeyboard,
+  setPending,
+  statusBadge,
+  webhookSecret,
+  type InlineKeyboard,
+} from '@/lib/telegramAdmin';
 
-// Load persisted rates from Redis on cold start
-const WEBHOOK_REDIS_KEY = '__SB_WEBHOOK_REDIS_LOADED__';
-if (!_g[WEBHOOK_REDIS_KEY]) {
-  _g[WEBHOOK_REDIS_KEY] = true;
-  loadRatesFromRedis().catch(() => {});
-}
+export const dynamic = 'force-dynamic';
 
-// Простая проверка токена вебхука через секрет в query (?secret=...)
+const SUPPORT_URL = 'https://t.me/SberBitsupport';
+
+// Подлинность запроса: Telegram присылает secret_token из setWebhook в заголовке.
+// ?secret=... в адресе — устаревший способ регистрации, тоже принимаем.
 function checkSecret(req: NextRequest) {
-  const url = new URL(req.url);
-  const secret = url.searchParams.get('secret');
-  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-  return expected ? secret === expected : true; // если секрета нет, пропускаем (dev)
+  const expected = webhookSecret();
+  if (!expected) return process.env.NODE_ENV !== 'production'; // без секрета — только dev
+  const provided =
+    req.headers.get('x-telegram-bot-api-secret-token') || new URL(req.url).searchParams.get('secret') || '';
+  return safeEqual(provided, expected);
 }
 
-async function handleShowRates(chatId: number | string) {
-  const number = new Intl.NumberFormat('ru-RU');
-  const rates = getRates();
-  const btcRub = getRateValue('BTC', 'RUB');
-  const usdtRub = getRateValue('USDT', 'RUB');
-  const btcUpdated = rates.BTC?.lastUpdate ? new Date(rates.BTC.lastUpdate).toLocaleString('ru-RU') : '';
-  const usdtUpdated = rates.USDT?.lastUpdate ? new Date(rates.USDT.lastUpdate).toLocaleString('ru-RU') : '';
+// ─── Output helpers ──────────────────────────────────────────────────────────
+type Ctx = { chatId: number; messageId?: number };
 
-  const lines = [
-    'Текущие курсы (с учётом наценки):',
+const html = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
+
+async function send(chatId: number, text: string, keyboard?: unknown) {
+  await bot.api.sendMessage(chatId, text, { ...html, ...(keyboard ? { reply_markup: keyboard as never } : {}) });
+}
+
+/** Edits the message the button belongs to (clean navigation), or sends a new one. */
+async function show(ctx: Ctx, text: string, keyboard?: InlineKeyboard) {
+  if (ctx.messageId) {
+    try {
+      await bot.api.editMessageText(ctx.chatId, ctx.messageId, text, {
+        ...html,
+        ...(keyboard ? { reply_markup: keyboard } : {}),
+      });
+      return;
+    } catch (e) {
+      if (String(e).includes('message is not modified')) return;
+    }
+  }
+  await send(ctx.chatId, text, keyboard);
+}
+
+const nf = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+const back = (to = 'menu:main', text = '⬅️ Назад') => [{ text, callback_data: to }];
+const home = [{ text: '🏠 Главное меню', callback_data: 'menu:main' }];
+
+// Постоянная клавиатура внизу чата
+const REPLY_KEYBOARD = {
+  keyboard: [
+    [{ text: '🏠 Главное меню' }, { text: '🔔 Проверить оплату' }],
+    [{ text: '📋 Заявки' }, { text: '📊 Статистика' }],
+    [{ text: '📈 Курсы' }, { text: '💳 Реквизиты' }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+};
+
+// ─── Screens ─────────────────────────────────────────────────────────────────
+type ListFilter = 'new' | 'check' | 'paid' | 'active' | 'done' | 'canceled' | 'all';
+const LISTS: Record<ListFilter, { title: string; match: (o: ExchangeOrder) => boolean }> = {
+  new: { title: '🆕 Ждут оплаты', match: (o) => isNew(o.status) },
+  check: { title: '🔔 Клиент оплатил — проверить', match: (o) => isClientPaid(o.status) },
+  paid: { title: '💸 Оплачены, в работе', match: (o) => isPaid(o.status) },
+  active: { title: '📝 Все открытые', match: (o) => !isCanceled(o.status) && !isDone(o.status) },
+  done: { title: '🏁 Выполненные', match: (o) => isDone(o.status) },
+  canceled: { title: '🗑 Отменённые', match: (o) => isCanceled(o.status) },
+  all: { title: '📋 Все заявки', match: () => true },
+};
+
+async function mainMenu(ctx: Ctx) {
+  const [orders, rates, req] = await Promise.all([OrdersStore.all(), getRates(), getPaymentDetails()]);
+  const count = (f: ListFilter) => orders.filter(LISTS[f].match).length;
+  const text = [
+    '<b>🏦 SberBits — панель управления</b>',
     '',
-    `BTC → RUB: ${number.format(Math.round(btcRub))} ₽`,
-    btcUpdated ? `Обновлено (BTC): ${btcUpdated}` : undefined,
+    `🔔 Проверить оплату: <b>${count('check')}</b>`,
+    `🆕 Ждут оплаты: <b>${count('new')}</b>`,
+    `💸 В работе: <b>${count('paid')}</b>`,
     '',
-    `USDT → RUB: ${number.format(usdtRub)} ₽`,
-    usdtUpdated ? `Обновлено (USDT): ${usdtUpdated}` : undefined,
-  ].filter(Boolean).join('\n');
-
-  const keyboard = { inline_keyboard: [[{ text: '🏠 В меню', callback_data: 'menu:main' }]] };
-  await bot.api.sendMessage(chatId, lines, { reply_markup: keyboard as any });
-}
-
-function buildRatesAdminKeyboard(rates: any) {
-  const keys = Object.keys(rates || {});
-  const rows = keys.map((k: string) => [{ text: `Изменить ${k}`, callback_data: `rates:edit:${k}` }]);
-  rows.push([{ text: '🏠 В меню', callback_data: 'menu:main' }]);
-  return { inline_keyboard: rows };
-}
-
-function isCanceled(status: string) {
-  return /отмен/i.test(status);
-}
-
-function isPaid(status: string) {
-  return /оплачена/i.test(status);
-}
-
-function isAdmin(chatId?: number | string | null) {
-  const admin = process.env.TELEGRAM_ADMIN_CHAT_ID;
-  if (!admin) return true; // dev mode: allow
-  return String(chatId) === String(admin);
-}
-
-function formatOrderLine(o: { id: string; fromAmount: string; fromCurrency: string; toAmount: string; toCurrency: string; status: string; }) {
-  return `#${o.id} | ${o.fromAmount} ${o.fromCurrency} → ${o.toAmount} ${o.toCurrency} | ${o.status}`;
-}
-
-function buildMainMenu() {
-  return {
+    '<b>📈 Курсы</b> (₽ за 1 монету)',
+    ...CURRENCIES.map((c) => `${c}: <b>${nf.format(rates[c]?.rub ?? 0)} ₽</b> ${rates[c]?.manual ? '✍️ вручную' : '🔄 авто'}`),
+    '',
+    `<b>💳 Реквизиты:</b> ${esc(req)}`,
+  ].join('\n');
+  await show(ctx, text, {
     inline_keyboard: [
+      [{ text: `🔔 Проверить оплату (${count('check')})`, callback_data: 'list:check:1' }],
       [
-        { text: '📝 Активные', callback_data: 'menu:orders' },
-        { text: '💸 Оплаченные', callback_data: 'menu:paid' },
+        { text: `🆕 Ждут оплаты (${count('new')})`, callback_data: 'list:new:1' },
+        { text: `💸 В работе (${count('paid')})`, callback_data: 'list:paid:1' },
       ],
       [
-        { text: '🗑 Отменённые', callback_data: 'menu:canceled' },
-        { text: '📋 Все', callback_data: 'menu:all' },
+        { text: '🏁 Выполненные', callback_data: 'list:done:1' },
+        { text: '🗑 Отменённые', callback_data: 'list:canceled:1' },
       ],
+      [{ text: '📋 Все заявки', callback_data: 'list:all:1' }],
       [
         { text: '📈 Курсы', callback_data: 'menu:rates' },
+        { text: '💳 Реквизиты', callback_data: 'menu:req' },
+      ],
+      [
+        { text: '📊 Статистика', callback_data: 'menu:stats' },
         { text: '❓ Помощь', callback_data: 'menu:help' },
       ],
       [
-        { text: '🆘 Поддержка', url: 'https://t.me/SunocomMusic' },
+        { text: '🔄 Обновить', callback_data: 'menu:main' },
+        { text: '🌐 Открыть сайт', url: getSiteUrl() },
       ],
     ],
-  };
+  });
 }
 
-type ListFilter = 'active' | 'paid' | 'canceled' | 'all';
+async function listsMenu(ctx: Ctx) {
+  const orders = await OrdersStore.all();
+  const row = (f: ListFilter) => [{ text: `${LISTS[f].title} (${orders.filter(LISTS[f].match).length})`, callback_data: `list:${f}:1` }];
+  await show(ctx, '<b>📋 Заявки</b>\n\nВыберите список. Чтобы открыть заявку по номеру — просто отправьте номер.', {
+    inline_keyboard: [row('check'), row('new'), row('paid'), row('done'), row('canceled'), row('all'), home],
+  });
+}
 
-function filterOrders(filter: ListFilter) {
-  const list = OrdersStore.all();
-  switch (filter) {
-    case 'active':
-      return list.filter(o => !isCanceled(o.status));
-    case 'paid':
-      return list.filter(o => isPaid(o.status));
-    case 'canceled':
-      return list.filter(o => isCanceled(o.status));
-    default:
-      return list;
+async function showList(ctx: Ctx, filter: ListFilter, page = 1) {
+  const items = (await OrdersStore.all()).filter(LISTS[filter].match);
+  if (!items.length) {
+    await show(ctx, `<b>${LISTS[filter].title}</b>\n\nЗаявок нет.`, { inline_keyboard: [back('menu:lists'), home] });
+    return;
   }
-}
-
-function filterTitle(filter: ListFilter) {
-  if (filter === 'active') return 'Активные заявки';
-  if (filter === 'paid') return 'Оплаченные заявки';
-  if (filter === 'canceled') return 'Отменённые заявки';
-  return 'Все заявки';
-}
-
-function paginate<T>(arr: T[], page: number, perPage = 10) {
-  const total = arr.length;
-  const pages = Math.max(1, Math.ceil(total / perPage));
+  const perPage = 8;
+  const pages = Math.ceil(items.length / perPage);
   const p = Math.min(Math.max(1, page), pages);
-  const start = (p - 1) * perPage;
-  const slice = arr.slice(start, start + perPage);
-  return { slice, p, pages, total };
-}
-
-async function handleShowList(chatId: number | string, filter: ListFilter, page = 1) {
-  const items = filterOrders(filter).reverse();
-  if (items.length === 0) {
-    const emptyText = filter === 'canceled' ? 'Отменённых заявок нет.' : 'Список заявок пуст.';
-    await bot.api.sendMessage(chatId, emptyText, { reply_markup: buildMainMenu() as any });
-    return;
-  }
-  const { slice, p, pages, total } = paginate(items, page);
-  const header = `${filterTitle(filter)} (всего: ${total}, стр. ${p}/${pages})`;
-  const text = [header, '', ...slice.map(formatOrderLine)].join('\n');
-  const navRow: any[] = [];
-  if (p > 1) navRow.push({ text: '⬅️ Назад', callback_data: `list:${filter}:${p - 1}` });
-  if (p < pages) navRow.push({ text: 'Вперёд ➡️', callback_data: `list:${filter}:${p + 1}` });
-  const keyboard = {
-    inline_keyboard: [
-      ...slice.map(o => [{ text: `#${o.id}`, callback_data: `order:${o.id}` }]),
-      navRow.length ? navRow : [{ text: 'Обновить', callback_data: `list:${filter}:${p}` }],
-      [{ text: '🏠 В меню', callback_data: 'menu:main' }],
-    ],
-  };
-  await bot.api.sendMessage(chatId, text, { reply_markup: keyboard as any });
-}
-
-async function handleShowOrder(chatId: string | number, id: string) {
-  const o = OrdersStore.get(id);
-  if (!o) {
-    await bot.api.sendMessage(chatId, `Заявка #${id} не найдена.`, { reply_markup: buildMainMenu() as any });
-    return;
-  }
-  const lines = [
-    `Заявка #${o.id}`,
-    `Статус: ${o.status}`,
-    `Отдаете: ${o.fromAmount} ${o.fromCurrency}`,
-    o.fromAccount ? `Со счета: ${o.fromAccount}` : undefined,
-    `Получаете: ${o.toAmount} ${o.toCurrency}`,
-    `На счет: ${o.toAccount}`,
-    `Реквизиты для оплаты: ${o.paymentDetails}`,
-    `Создана: ${o.createdAt}`,
-    `Обновлена: ${o.lastStatusUpdate}`,
-  ].filter(Boolean).join('\n');
-
-  const site = process.env.NEXT_PUBLIC_SITE_URL;
-  const openUrl = site ? `${site.replace(/\/$/, '')}/order/${o.id}` : undefined;
-  const keyboard = {
-    inline_keyboard: [
-      [
-        { text: '✅ Подтвердить оплату (вставить ссылку)', callback_data: `act:confirm:${o.id}:with_link` },
-        { text: '✅ Подтвердить (без ссылки)', callback_data: `act:confirm:${o.id}:no_link` },
-        { text: '🗑 Отменить заявку', callback_data: `act:cancel:${o.id}` },
-      ],
-      [
-        ...(openUrl ? [{ text: '🔗 Открыть в кабинете', url: openUrl }] as any[] : []),
-      ],
-      [{ text: '⬅️ Назад', callback_data: 'menu:orders' }],
-      [{ text: '🏠 В меню', callback_data: 'menu:main' }],
-    ],
-  };
-
-  await bot.api.sendMessage(chatId, lines, { reply_markup: keyboard as any });
-}
-
-function nowStamp() {
-  const now = new Date();
-  return `${now.toLocaleDateString('ru-RU')}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
-}
-
-async function handleActionConfirm(chatId: number, id: string, messageId?: number) {
-  const o = OrdersStore.get(id);
-  if (!o) {
-    await bot.api.sendMessage(chatId, `Заявка #${id} не найдена.`);
-    return;
-  }
-  const updated = { ...o, status: 'Заявка оплачена — идет проверка платежа и обработка заявки', lastStatusUpdate: nowStamp() };
-  OrdersStore.save(updated);
+  const slice = items.slice((p - 1) * perPage, p * perPage);
   const text = [
-    `Заявка #${updated.id}`,
-    `Статус: ${updated.status}`,
-    `Отдаете: ${updated.fromAmount} ${updated.fromCurrency}`,
-    updated.fromAccount ? `Со счета: ${updated.fromAccount}` : undefined,
-    `Получаете: ${updated.toAmount} ${updated.toCurrency}`,
-    `На счет: ${updated.toAccount}`,
-    `Реквизиты для оплаты: ${updated.paymentDetails}`,
-    `Создана: ${updated.createdAt}`,
-    `Обновлена: ${updated.lastStatusUpdate}`,
-  ].filter(Boolean).join('\n');
-  try {
-    if (messageId) {
-      await bot.api.editMessageText(chatId, messageId, text);
-    } else {
-      await bot.api.sendMessage(chatId, text);
-    }
-  } catch {
-    await bot.api.sendMessage(chatId, text);
-  }
-  // Email уведомление пользователю
-  try {
-    await sendOrderStatusEmail(
-      updated.email,
-      `Заявка #${updated.id}: подтверждение оплаты принято (админ)`,
-      {
-        id: updated.id,
-        status: updated.status,
-        email: updated.email,
-        fromAmount: updated.fromAmount,
-        fromCurrency: updated.fromCurrency,
-        toAmount: updated.toAmount,
-        toCurrency: updated.toCurrency,
-        toAccount: updated.toAccount,
-        createdAt: updated.createdAt,
-        lastStatusUpdate: updated.lastStatusUpdate,
-        paymentDetails: updated.paymentDetails,
-        siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
-      }
-    );
-  } catch (e) {
-    console.warn('Не удалось отправить email (admin confirm):', e);
-  }
+    `<b>${LISTS[filter].title}</b> — ${items.length} шт.${pages > 1 ? `, стр. ${p}/${pages}` : ''}`,
+    '',
+    ...slice.map((o) => `<b>#${o.id}</b> · ${esc(o.fromAmount)} ₽ → ${esc(o.toAmount)} ${esc(o.toCurrency)}\n${statusBadge(o.status)} · ${esc(o.createdAt)}`),
+    '',
+    'Нажмите на заявку, чтобы открыть её.',
+  ].join('\n');
+  const nav: { text: string; callback_data: string }[] = [];
+  if (p > 1) nav.push({ text: '⬅️', callback_data: `list:${filter}:${p - 1}` });
+  if (p < pages) nav.push({ text: '➡️', callback_data: `list:${filter}:${p + 1}` });
+  await show(ctx, text, {
+    inline_keyboard: [
+      ...slice.map((o) => [{ text: `#${o.id} · ${o.fromAmount} ₽ · ${statusBadge(o.status)}`, callback_data: `order:${o.id}` }]),
+      ...(nav.length ? [nav] : []),
+      [{ text: '🔄 Обновить', callback_data: `list:${filter}:${p}` }, ...back('menu:lists')],
+      home,
+    ],
+  });
 }
 
-async function handleActionCancel(chatId: number, id: string, messageId?: number) {
-  const o = OrdersStore.get(id);
+async function showOrder(ctx: Ctx, id: string) {
+  const o = await OrdersStore.get(id);
   if (!o) {
-    await bot.api.sendMessage(chatId, `Заявка #${id} не найдена.`);
+    await show(ctx, `Заявка #${esc(id)} не найдена.`, { inline_keyboard: [home] });
     return;
   }
-  const updated = { ...o, status: 'Заявка отменена администратором', lastStatusUpdate: nowStamp() };
-  OrdersStore.save(updated);
+  await show(ctx, formatOrder(o), orderKeyboard(o));
+}
+
+async function ratesMenu(ctx: Ctx, note?: string) {
+  const rates = await getRates();
   const text = [
-    `Заявка #${updated.id}`,
-    `Статус: ${updated.status}`,
-    `Отдаете: ${updated.fromAmount} ${updated.fromCurrency}`,
-    updated.fromAccount ? `Со счета: ${updated.fromAccount}` : undefined,
-    `Получаете: ${updated.toAmount} ${updated.toCurrency}`,
-    `На счет: ${updated.toAccount}`,
-    `Реквизиты для оплаты: ${updated.paymentDetails}`,
-    `Создана: ${updated.createdAt}`,
-    `Обновлена: ${updated.lastStatusUpdate}`,
-  ].filter(Boolean).join('\n');
-  try {
-    if (messageId) {
-      await bot.api.editMessageText(chatId, messageId, text);
-    } else {
-      await bot.api.sendMessage(chatId, text);
-    }
-  } catch {
-    await bot.api.sendMessage(chatId, text);
+    note ? `${note}\n` : undefined,
+    '<b>📈 Курсы на сайте</b> (₽ за 1 монету)',
+    '',
+    ...CURRENCIES.map((c) => {
+      const r = rates[c];
+      return `<b>${c}</b>: ${nf.format(r?.rub ?? 0)} ₽ — ${r?.manual ? '✍️ задан вручную' : '🔄 авто с биржи'}`;
+    }),
+    '',
+    '🔄 Авто — курс обновляется с биржи раз в минуту.',
+    '✍️ Вручную — курс не меняется, пока вы его не измените.',
+  ]
+    .filter((l) => l !== undefined)
+    .join('\n');
+  await show(ctx, text, {
+    inline_keyboard: [
+      CURRENCIES.map((c) => ({ text: `✏️ ${c}`, callback_data: `rates:edit:${c}` })),
+      [{ text: '🔄 Все курсы — авто с биржи', callback_data: 'rates:auto' }],
+      home,
+    ],
+  });
+}
+
+async function reqMenu(ctx: Ctx, note?: string) {
+  const req = await getPaymentDetails();
+  await show(
+    ctx,
+    [
+      note ? `${note}\n` : undefined,
+      '<b>💳 Реквизиты для оплаты</b>',
+      '',
+      'Клиенты видят их на странице заявки:',
+      `<code>${esc(req)}</code>`,
+      '',
+      'Новые реквизиты применяются к новым заявкам.',
+    ]
+      .filter((l) => l !== undefined)
+      .join('\n'),
+    { inline_keyboard: [[{ text: '✏️ Изменить реквизиты', callback_data: 'req:edit' }], home] }
+  );
+}
+
+async function statsMenu(ctx: Ctx) {
+  const orders = await OrdersStore.all();
+  const today = new Date().toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' });
+  const todays = orders.filter((o) => o.createdAt.startsWith(today));
+  const sum = (list: ExchangeOrder[]) => list.reduce((s, o) => s + (Number(o.fromAmount) || 0), 0);
+  const doneAll = orders.filter((o) => isDone(o.status));
+  const doneToday = todays.filter((o) => isDone(o.status));
+  await show(
+    ctx,
+    [
+      '<b>📊 Статистика</b>',
+      '',
+      `<b>Сегодня</b> (${today})`,
+      `Заявок: <b>${todays.length}</b>, выполнено: <b>${doneToday.length}</b> на <b>${nf.format(sum(doneToday))} ₽</b>`,
+      '',
+      '<b>За 90 дней</b>',
+      `Заявок: <b>${orders.length}</b>, выполнено: <b>${doneAll.length}</b> на <b>${nf.format(sum(doneAll))} ₽</b>`,
+      `Отменено: <b>${orders.filter((o) => isCanceled(o.status)).length}</b>`,
+    ].join('\n'),
+    { inline_keyboard: [[{ text: '🔄 Обновить', callback_data: 'menu:stats' }], home] }
+  );
+}
+
+const HELP_TEXT = [
+  '<b>❓ Как пользоваться</b>',
+  '',
+  '1. Клиент создаёт заявку на сайте — вам приходит уведомление 🆕.',
+  '2. Клиент нажимает «Я оплатил» — приходит уведомление 🔔.',
+  '3. Проверьте поступление денег и нажмите <b>✅ Оплата получена</b>.',
+  '4. Отправьте крипту и нажмите <b>🏁 Выполнена</b> — пришлите ссылку или хэш транзакции.',
+  '',
+  'Курсы и реквизиты меняются в разделах 📈 и 💳.',
+  'Открыть заявку — отправьте её номер.',
+  '',
+  'Команды: /start /orders /rates /req /stats /help',
+].join('\n');
+
+// ─── Order actions ───────────────────────────────────────────────────────────
+async function changeStatus(ctx: Ctx, id: string, status: string, emailSubject: string, extra: Partial<ExchangeOrder> = {}) {
+  const o = await OrdersStore.get(id);
+  if (!o) {
+    await show(ctx, `Заявка #${esc(id)} не найдена.`, { inline_keyboard: [home] });
+    return;
   }
-  // Email уведомление пользователю
+  if (isCanceled(o.status) || isDone(o.status)) {
+    await show(ctx, `${formatOrder(o)}\n\n⚠️ Заявка уже закрыта.`, orderKeyboard(o));
+    return;
+  }
+  const updated: ExchangeOrder = { ...o, ...extra, status, lastStatusUpdate: nowStamp() };
+  await OrdersStore.save(updated);
+  await show(ctx, formatOrder(updated), orderKeyboard(updated));
   try {
-    await sendOrderStatusEmail(
-      updated.email,
-      `Заявка #${updated.id}: отменена администратором`,
-      {
-        id: updated.id,
-        status: updated.status,
-        email: updated.email,
-        fromAmount: updated.fromAmount,
-        fromCurrency: updated.fromCurrency,
-        toAmount: updated.toAmount,
-        toCurrency: updated.toCurrency,
-        toAccount: updated.toAccount,
-        createdAt: updated.createdAt,
-        lastStatusUpdate: updated.lastStatusUpdate,
-        paymentDetails: updated.paymentDetails,
-        siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
-      }
-    );
+    await sendOrderStatusEmail(updated.email, `Заявка #${updated.id}: ${emailSubject}`, { ...updated, siteUrl: getSiteUrl() });
   } catch (e) {
-    console.warn('Не удалось отправить email (admin cancel):', e);
+    console.warn('Не удалось отправить email:', e);
   }
 }
 
+// ─── Admin text input ────────────────────────────────────────────────────────
+async function handlePendingInput(chatId: number, text: string): Promise<boolean> {
+  const pending = await getPending(chatId);
+  if (!pending) return false;
+  const ctx: Ctx = { chatId };
+
+  if (pending.type === 'edit_rate') {
+    const parsed = Number(text.replace(/[^\d,.]/g, '').replace(',', '.'));
+    if (!text || !Number.isFinite(parsed) || parsed <= 0) {
+      await send(chatId, '⚠️ Не удалось распознать число. Введите курс цифрами, например <code>4200000</code>.', {
+        inline_keyboard: [[{ text: '✖️ Отмена', callback_data: 'input:cancel' }]],
+      });
+      return true;
+    }
+    await setManualRate(pending.currency, parsed);
+    await clearPending(chatId);
+    await ratesMenu(ctx, `✅ Курс <b>${pending.currency}</b> установлен: <b>${nf.format(parsed)} ₽</b>`);
+    return true;
+  }
+
+  if (pending.type === 'edit_payment_details') {
+    const value = text.trim();
+    if (!value || value.length > 500) {
+      await send(chatId, '⚠️ Реквизиты должны быть непустыми и не длиннее 500 символов.', {
+        inline_keyboard: [[{ text: '✖️ Отмена', callback_data: 'input:cancel' }]],
+      });
+      return true;
+    }
+    await setPaymentDetails(value);
+    await clearPending(chatId);
+    await reqMenu(ctx, '✅ Реквизиты обновлены.');
+    return true;
+  }
+
+  if (pending.type === 'done') {
+    await clearPending(chatId);
+    await changeStatus(ctx, pending.orderId, STATUS.done, 'заявка выполнена', { txLink: text.trim().slice(0, 500) });
+    return true;
+  }
+
+  return false;
+}
+
+// ─── Routing ─────────────────────────────────────────────────────────────────
+const TEXT_ROUTES: Record<string, (ctx: Ctx) => Promise<void>> = {
+  '/start': mainMenu,
+  '/menu': mainMenu,
+  '🏠 главное меню': mainMenu,
+  '/orders': listsMenu,
+  '📋 заявки': listsMenu,
+  '🔔 проверить оплату': (ctx) => showList(ctx, 'check'),
+  '/rates': (ctx) => ratesMenu(ctx),
+  '📈 курсы': (ctx) => ratesMenu(ctx),
+  '/req': (ctx) => reqMenu(ctx),
+  '💳 реквизиты': (ctx) => reqMenu(ctx),
+  '/stats': statsMenu,
+  '📊 статистика': statsMenu,
+  '/help': (ctx) => show(ctx, HELP_TEXT, { inline_keyboard: [home] }),
+};
+
+async function handleMessage(chatId: number, text: string) {
+  const cmd = text.toLowerCase().replace(/@\w+$/, '');
+
+  if (!isAdmin(chatId)) {
+    if (cmd === '/rates') {
+      const rates = await getRates();
+      await send(
+        chatId,
+        [
+          '<b>Текущие курсы</b> (с учётом наценки):',
+          `BTC → RUB: ${nf.format(Math.round(getRateValue(rates, 'BTC', 'RUB')))} ₽`,
+          `USDT → RUB: ${nf.format(getRateValue(rates, 'USDT', 'RUB'))} ₽`,
+        ].join('\n')
+      );
+      return;
+    }
+    await send(chatId, 'Здравствуйте! Обмен доступен на сайте, вопросы — в поддержку.', {
+      inline_keyboard: [[{ text: '🌐 Сайт', url: getSiteUrl() }], [{ text: '🆘 Поддержка', url: SUPPORT_URL }]],
+    });
+    return;
+  }
+
+  // кнопки меню и команды отменяют незавершённый ввод
+  const route = TEXT_ROUTES[cmd];
+  if (route) {
+    await clearPending(chatId);
+    if (cmd === '/start') {
+      await send(chatId, '👋 Панель администратора. Кнопки внизу всегда под рукой.', REPLY_KEYBOARD);
+    }
+    await route({ chatId });
+    return;
+  }
+
+  if (await handlePendingInput(chatId, text)) return;
+
+  if (/^#?\d{6,20}$/.test(text)) {
+    await showOrder({ chatId }, text.replace('#', ''));
+    return;
+  }
+
+  await send(chatId, 'Не понял команду 🤔 Используйте кнопки меню.', REPLY_KEYBOARD);
+}
+
+async function handleCallback(ctx: Ctx, data: string) {
+  const [kind, a, b] = data.split(':');
+
+  if (kind === 'menu') {
+    await clearPending(ctx.chatId);
+    if (a === 'main') return mainMenu(ctx);
+    if (a === 'lists') return listsMenu(ctx);
+    if (a === 'rates') return ratesMenu(ctx);
+    if (a === 'req') return reqMenu(ctx);
+    if (a === 'stats') return statsMenu(ctx);
+    if (a === 'help') return show(ctx, HELP_TEXT, { inline_keyboard: [home] });
+  }
+
+  if (kind === 'list') {
+    const f = (a in LISTS ? a : 'active') as ListFilter;
+    return showList(ctx, f, parseInt(b || '1', 10) || 1);
+  }
+
+  if (kind === 'order') return showOrder(ctx, a);
+
+  if (kind === 'act') {
+    const id = b;
+    if (a === 'paid') return changeStatus(ctx, id, STATUS.paid, 'оплата получена');
+    if (a === 'done') {
+      await setPending(ctx.chatId, { type: 'done', orderId: id });
+      return show(ctx, `<b>🏁 Заявка #${esc(id)}</b>\n\nОтправьте сообщением ссылку или хэш транзакции — клиент увидит её на сайте и в письме.`, {
+        inline_keyboard: [
+          [{ text: '✅ Выполнена без ссылки', callback_data: `act:donenolink:${id}` }],
+          [{ text: '✖️ Отмена', callback_data: `order:${id}` }],
+        ],
+      });
+    }
+    if (a === 'donenolink') {
+      await clearPending(ctx.chatId);
+      return changeStatus(ctx, id, STATUS.done, 'заявка выполнена');
+    }
+    if (a === 'cancel') {
+      return show(ctx, `<b>Отменить заявку #${esc(id)}?</b>\n\nКлиент увидит статус «отменена администратором».`, {
+        inline_keyboard: [
+          [{ text: '🗑 Да, отменить', callback_data: `act:cancelyes:${id}` }],
+          [{ text: '⬅️ Нет, назад', callback_data: `order:${id}` }],
+        ],
+      });
+    }
+    if (a === 'cancelyes') return changeStatus(ctx, id, STATUS.canceledByAdmin, 'отменена администратором');
+  }
+
+  if (kind === 'rates') {
+    if (a === 'auto') {
+      await resetToAutoRates();
+      return ratesMenu(ctx, '✅ Курсы снова обновляются автоматически с биржи.');
+    }
+    if (a === 'edit' && (CURRENCIES as readonly string[]).includes(b)) {
+      const current = (await getRates())[b]?.rub ?? 0;
+      await setPending(ctx.chatId, { type: 'edit_rate', currency: b });
+      return show(ctx, `<b>✏️ Курс ${b}</b>\n\nСейчас: <b>${nf.format(current)} ₽</b>\n\nОтправьте новый курс в рублях за 1 ${b} сообщением, например <code>${Math.round(current) || 4200000}</code>.`, {
+        inline_keyboard: [[{ text: '✖️ Отмена', callback_data: 'menu:rates' }]],
+      });
+    }
+  }
+
+  if (kind === 'req' && a === 'edit') {
+    await setPending(ctx.chatId, { type: 'edit_payment_details' });
+    return show(ctx, '<b>✏️ Новые реквизиты</b>\n\nОтправьте сообщением ссылку на оплату или номер карты с названием банка и получателем.', {
+      inline_keyboard: [[{ text: '✖️ Отмена', callback_data: 'menu:req' }]],
+    });
+  }
+
+  if (kind === 'input' && a === 'cancel') {
+    await clearPending(ctx.chatId);
+    return mainMenu(ctx);
+  }
+}
+
+// ─── Webhook ─────────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
-  try {
-    if (!checkSecret(request)) {
-      return NextResponse.json({ ok: true }, { status: 200 });
-    }
+  if (!checkSecret(request)) {
+    console.warn('[Telegram] webhook rejected: wrong or missing secret token');
+    return NextResponse.json({ ok: false }, { status: 401 });
+  }
 
+  try {
     const update = await request.json();
 
     if (update.message) {
-      const chatId = update.message.chat.id as number;
-      const text: string = (update.message.text || '').trim();
-
-        // If admin has a pending action, treat this message as the payload (link or confirmation)
-        if (PendingActions.has(String(chatId))) {
-          const pending = PendingActions.get(String(chatId))!;
-    // if admin sent /skip — treat as confirm without link
-          if (text === '/skip') {
-            // apply confirmation without additional link
-            await handleActionConfirm(chatId, pending.orderId);
-            PendingActions.delete(String(chatId));
-            await bot.api.sendMessage(chatId, `Подтверждение для заявки #${pending.orderId} принято без ссылки.`);
-            return NextResponse.json({ ok: true });
-            }
-          // support pending edit_rate (we store currency in orderId field)
-          if (pending.type === 'edit_rate') {
-            const currency = pending.orderId;
-            const parsed = Number(String(text).replace(/[^\d,\.]/g, '').replace(',', '.'));
-            if (isNaN(parsed)) {
-              await bot.api.sendMessage(chatId, `Не удалось распознать число из '${text}'. Попробуйте ещё раз.`);
-              return NextResponse.json({ ok: true });
-            }
-            try {
-              exchangeRates.updateRate(currency, parsed);
-              PendingActions.delete(String(chatId));
-              await bot.api.sendMessage(chatId, `Курс ${currency} обновлён: ${parsed}`);
-              return NextResponse.json({ ok: true });
-            } catch (e) {
-              await bot.api.sendMessage(chatId, `Не удалось обновить курс: ${String(e)}`);
-              return NextResponse.json({ ok: true });
-            }
-          }
-          // otherwise treat text as payment link and save it
-          const existing = OrdersStore.get(pending.orderId);
-          if (existing) {
-            const updated = { ...existing, paymentDetails: text, lastStatusUpdate: nowStamp(), status: 'Заявка оплачена — идет проверка платежа и обработка заявки' };
-            OrdersStore.save(updated);
-            PendingActions.delete(String(chatId));
-            await bot.api.sendMessage(chatId, `Ссылка сохранена и заявка #${pending.orderId} помечена как оплаченная.`);
-            // notify user/email
-            try {
-              await sendOrderStatusEmail(
-                updated.email,
-                `Заявка #${updated.id}: подтверждение оплаты принято (админ)` ,
-                {
-                  id: updated.id,
-                  status: updated.status,
-                  email: updated.email,
-                  fromAmount: updated.fromAmount,
-                  fromCurrency: updated.fromCurrency,
-                  toAmount: updated.toAmount,
-                  toCurrency: updated.toCurrency,
-                  toAccount: updated.toAccount,
-                  createdAt: updated.createdAt,
-                  lastStatusUpdate: updated.lastStatusUpdate,
-                  paymentDetails: updated.paymentDetails,
-                  siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
-                }
-              );
-            } catch (e) {
-              console.warn('Не удалось отправить email (admin confirm with link):', e);
-            }
-            return NextResponse.json({ ok: true });
-          }
-        }
-
-      // Normalize command: lowercase + strip @BotName suffix
-      const cmd = text.toLowerCase().replace(/@\w+$/, '');
-
-      // Public commands
-      if (cmd === '/start' || cmd === 'menu' || cmd === '/menu') {
-        const greeting = isAdmin(chatId) ? 'Панель администратора SberBits' : 'Добро пожаловать!';
-        await bot.api.sendMessage(chatId, greeting, { reply_markup: buildMainMenu() as any });
-      } else if (/^\/rates?$/i.test(cmd)) {
-        await handleShowRates(chatId);
-      } else if (/^\/help$/i.test(cmd)) {
-        const helpText = [
-          '📚 Доступные команды:',
-          '/orders — активные заявки',
-          '/paid — оплаченные заявки',
-          '/canceled — отменённые заявки',
-          '/all — все заявки',
-          '/rates — текущие курсы',
-          '#ID — найти заявку по ID',
-        ].join('\n');
-        await bot.api.sendMessage(chatId, helpText, { reply_markup: buildMainMenu() as any });
-      } else if (/^#?\d+$/.test(text)) {
-        const id = text.replace('#', '');
-        if (isAdmin(chatId)) await handleShowOrder(chatId, id);
-        else await bot.api.sendMessage(chatId, 'Просмотр заявок доступен только администратору.');
-      } else if (/^\/(orders|list|paid|canceled|cancelled|all)/i.test(cmd)) {
-        if (!isAdmin(chatId)) { await bot.api.sendMessage(chatId, 'Доступно только администратору.'); return NextResponse.json({ ok: true }); }
-        if (/paid/i.test(cmd)) await handleShowList(chatId, 'paid', 1);
-        else if (/canceled|cancelled/i.test(cmd)) await handleShowList(chatId, 'canceled', 1);
-        else if (/all/i.test(cmd)) await handleShowList(chatId, 'all', 1);
-        else await handleShowList(chatId, 'active', 1);
-      } else {
-        await bot.api.sendMessage(chatId, 'Команда не распознана. Используйте меню ниже.', { reply_markup: buildMainMenu() as any });
-      }
+      const chatId = update.message.chat?.id as number;
+      const text = String(update.message.text || '').trim();
+      if (chatId && text) await handleMessage(chatId, text);
     } else if (update.callback_query) {
       const cq = update.callback_query;
-      const chatId = cq.message?.chat.id as number;
-      const data: string = cq.data || '';
-
-      // Determine whether this callback requires admin rights
-      const adminOnly = /^(menu:(orders|paid|canceled|all))|^list:|^act:/i.test(data);
-      if (adminOnly && !isAdmin(chatId)) {
-        // politely acknowledge the interaction for non-admins
-        if (cq.id) {
-          try { await bot.api.answerCallbackQuery(cq.id, { text: 'Действие доступно только администратору.' } as any); } catch {}
-        }
-        return NextResponse.json({ ok: true });
-      }
-      if (data === 'menu:main') {
-        await bot.api.editMessageText(chatId, cq.message!.message_id, 'Главное меню', { reply_markup: buildMainMenu() as any });
-      } else if (data === 'menu:orders') {
-        await handleShowList(chatId, 'active', 1);
-      } else if (data === 'menu:paid') {
-        await handleShowList(chatId, 'paid', 1);
-      } else if (data === 'menu:canceled') {
-        await handleShowList(chatId, 'canceled', 1);
-      } else if (data === 'menu:all') {
-        await handleShowList(chatId, 'all', 1);
-      } else if (data === 'menu:rates') {
-        if (isAdmin(chatId)) {
-          const rates = getRates();
-          const lines = ['Текущие курсы (для редактирования):', '', ...Object.keys(rates).map(k => `${k}: ${rates[k].rub}`)].join('\n');
-          await bot.api.sendMessage(chatId, lines, { reply_markup: buildRatesAdminKeyboard(rates) as any });
-        } else {
-          await handleShowRates(chatId);
-        }
-      } else if (data.startsWith('rates:edit:')) {
-        const currency = data.split(':')[2];
-        PendingActions.set(String(chatId), { type: 'edit_rate', orderId: currency });
-        await bot.api.sendMessage(chatId, `Введите новый курс (в RUB) для ${currency}, например 4200000`);
-      } else if (data === 'menu:help') {
-        await bot.api.sendMessage(chatId, 'Доступные действия: \n- Заявки\n- Отменённые заявки\n- Просмотр заявки по ID (отправьте номер, напр. 12345)', { reply_markup: buildMainMenu() as any });
-      } else if (data.startsWith('order:')) {
-        const id = data.split(':')[1];
-        await handleShowOrder(chatId, id);
-      } else if (data.startsWith('list:')) {
-        const [, filter, pageStr] = data.split(':');
-        const page = parseInt(pageStr || '1', 10) || 1;
-        const f = (['active','paid','canceled','all'].includes(filter) ? filter : 'active') as ListFilter;
-        await handleShowList(chatId, f, page);
-      } else if (data.startsWith('act:confirm:')) {
-        const parts = data.split(':');
-        const id = parts[2];
-        const mode = parts[3] || 'no_link';
-        if (mode === 'with_link') {
-          // mark pending and ask admin to send the link as a message
-          PendingActions.set(String(chatId), { type: 'confirm', orderId: id });
-          await bot.api.sendMessage(chatId, `Пожалуйста, отправьте ссылку на платёж для заявки #${id} в ответном сообщении. Если хотите подтвердить без ссылки, отправьте /skip`);
-        } else {
-          await handleActionConfirm(chatId, id, cq.message?.message_id);
-        }
-      } else if (data.startsWith('act:cancel:')) {
-        const id = data.split(':')[2];
-        await handleActionCancel(chatId, id, cq.message?.message_id);
-      }
-
-      if (cq.id) {
-        try { await bot.api.answerCallbackQuery(cq.id); } catch {}
+      const chatId = cq.message?.chat?.id as number;
+      if (!isAdmin(chatId)) {
+        await bot.api.answerCallbackQuery(cq.id, { text: 'Действие доступно только администратору.' }).catch(() => {});
+      } else {
+        // сразу снимаем «часики» с кнопки, параллельно выполняем действие
+        const answered = bot.api.answerCallbackQuery(cq.id).catch(() => {});
+        await handleCallback({ chatId, messageId: cq.message?.message_id }, String(cq.data || ''));
+        await answered;
       }
     }
-
-    return NextResponse.json({ ok: true });
   } catch (e) {
     console.error('Telegram webhook error:', e);
-    return NextResponse.json({ ok: true }, { status: 200 });
   }
+  // всегда 200, чтобы Telegram не повторял один и тот же апдейт бесконечно
+  return NextResponse.json({ ok: true });
 }
